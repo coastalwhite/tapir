@@ -9,6 +9,3 @@ edition = "2021"
 indexmap = { version = "2.1.0", features = ["serde"] }
 serde = { version = "1.0.193", features = ["derive"] }
 toml = { version = "0.8.8", features = ["preserve_order"] }
-
-[dev-dependencies]
-toml = "0.8.8"

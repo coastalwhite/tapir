@@ -68,6 +68,7 @@ pub struct Assembly {
 fn parse() {
     let content = include_str!("../../format.toml");
     let file: File = toml::from_str(content).unwrap();
-    dbg!(file);
+    dbg!(&file);
+    dbg!(file.to_isa().unwrap());
     assert!(false);
 }

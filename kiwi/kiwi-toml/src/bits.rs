@@ -55,9 +55,9 @@ impl Bits {
         }
     }
 
-    pub fn le_bytes(&self) -> &[u8] {
+    pub fn le_byte(&self, idx: usize) -> u8 {
         match self.inner {
-            BitsInner::Short(_, bits) => &bits.to_le_bytes(),
+            BitsInner::Short(_, bits) => bits.to_le_bytes()[idx],
             BitsInner::Long(_) => todo!(),
         }
     }
