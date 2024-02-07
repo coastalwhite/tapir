@@ -1,0 +1,26 @@
+project_name = "Process Example"
+instruction_set = "rv32i"
+
+[section.instr]
+name = "Instruction RAM"
+
+start = 0x0000_0000
+end   = 0x0000_8000
+
+[section.instr.driver]
+initialize_with_file = "elf:./tests/driver.o"
+
+[section.cached]
+name = "Cached"
+
+start = 0x0010_0000
+end = 0x0010_8000
+
+[section.cached.driver]
+initialize_with = "zeroed"
+
+[section.cached.caching]
+replacement = "fifo"
+associativity = 2
+sets = 64
+cache_line_words = 4

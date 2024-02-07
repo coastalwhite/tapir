@@ -1,0 +1,39 @@
+[mem.ram]
+from = 0x0000 
+to   = 0xFFFF # or size = 0xFFFF
+
+# access = { read = true, write = true, execute = true }
+
+# Define the driver of of this memory section
+# Options:
+# - "store": the default behavior.
+#       Allocate the full buffer if it is smaller than 1 MB. Allocate based on
+#       usage otherwise.
+# - "static-sized-store": allocate the full buffer immediately
+# - "dynamic-sized-store": allocate the buffer based on usage
+# - "file": utilize a file as the driver.
+# - "process": utilize a process as the driver
+driver = {
+    kind = "store",
+}
+
+# initialize = "zeroed" # default
+# initialize = "random"
+initialize = { path = "abc", format = "hex" }
+
+# caching = "none" # default
+[mem.ram.caching]
+placement = "set-associative"
+replacement = "FIFO"
+writing_hit = "write-through"
+writing_miss = "allocate"
+sets = 64
+cache_line_words = 4
+
+[mem.rom]
+from = 0x1000_0000
+size = 0x1000_0000
+
+[mem.data]
+from = 0x0010_0000
+size = 0x0000_8000

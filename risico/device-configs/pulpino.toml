@@ -1,0 +1,60 @@
+project_name = "Pulpino Core"
+instruction_set = "rv32i"
+
+[section.instr_ram]
+name = "Instruction RAM"
+
+start = 0x0000_0000
+end   = 0x0000_8000
+
+access = { read = true, write = true, execute = true }
+
+[section.instr_ram.driver]
+initialize_with_file = "elf:/home/johndoe/Documents/vm-shared/pulpino-top-level-cw305/program/target/rust/blinky_led/target/riscv32i-unknown-none-elf/release/blinky_led"
+# initialize_with = "zeroed"
+
+[section.boot_rom]
+name = "Boot ROM"
+
+start = 0x0008_0000
+end   = 0x0008_0200
+
+access = { read = true, write = false, execute = true }
+
+[section.boot_rom.driver]
+initialize_with = "zeroed"
+# initialize_with_file = "./boot.rom"
+
+[section.data_ram]
+name = "Data RAM"
+
+start = 0x0010_0000
+end   = 0x0010_8000
+
+access = { read = true, write = true, execute = false }
+
+[section.data_ram.driver]
+initialize_with = "zeroed"
+
+# UART = 0x1A10_0000
+# GPIO = 0x1A10_1000
+[section.gpio]
+name = "GPIO"
+
+start = 0x1A10_1000
+size = 12
+
+access = { read = true, write = true, execute = false }
+
+[section.gpio.driver]
+kind = "process"
+path = "./drivers/pulpino-usb.py"
+args = ""
+
+# SPI Master = 0x1A10_2000
+# Timer = 0x1A10_3000
+# Event / Interrupt Unit = 0x1A10_4000
+# I2C = 0x1A10_5000
+# FLL = 0x1A10_6000
+# Soc Control = 0x1A10_7000
+# Debug Port = 0x1A11_0000

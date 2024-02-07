@@ -1,0 +1,12 @@
+project_name = "Random Static Section"
+instruction_set = "rv32i"
+
+[section.rnd_static]
+name = "Static Section"
+
+start = 0x0000_0000
+end   = 0x0000_0100
+
+[section.rnd_static.driver]
+allocate = "preallocate"
+initialize_with = "random"

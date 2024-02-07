@@ -1,0 +1,22 @@
+project_name = "Process Example"
+instruction_set = "rv32i"
+
+[section.instr]
+name = "Instruction RAM"
+
+start = 0x0000_0000
+end   = 0x0000_8000
+
+[section.instr.driver]
+initialize_with_file = "elf:./tests/driver.o"
+
+[section.process]
+name = "Process"
+
+start = 0x0010_0000
+size = 4
+
+[section.process.driver]
+kind = "process"
+path = "./tests/driver.py"
+args = ""
