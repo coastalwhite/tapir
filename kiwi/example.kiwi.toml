@@ -1,0 +1,342 @@
+name = "RISC-V 32-Bit Base Instruction"
+description = ""
+
+[formats.cr]
+funct4 = 4
+rd_rs1 = 5
+rs2 = 5
+opcode = { bits = 2, match = 0 }
+
+[formats.r]
+funct7 = 7
+rs2 = 5
+rs1 = 5
+funct3 = 3
+rd = 5
+opcode = { bits = 7, match = 0 }
+
+[formats.r4]
+rs3 = 5
+funct2 = 2
+rs2 = 5
+rs1 = 5
+funct3 = 3
+rd = 5
+opcode = { bits = 7, match = 0 }
+
+[formats.i]
+imm11_0 = 12
+rs1 = 5
+funct3 = 3
+rd = 5
+opcode = { bits = 7, match = 0 }
+
+[formats.s]
+imm11_5 = 7
+rs2 = 5
+rs1 = 5
+funct3 = 3
+imm4_0 = 5 
+opcode = { bits = 7, match = 0 }
+
+[formats.b]
+imm12 = 1
+imm10_5 = 6
+rs2 = 5
+rs1 = 5
+funct3 = 3
+imm4_1 = 4 
+imm11 = 1
+opcode = { bits = 7, match = 0 }
+
+[formats.u]
+imm31_12 = 20
+rd = 5
+opcode = { bits = 7, match = 0 }
+
+[formats.j]
+imm20 = 1
+imm10_1 = 10
+imm11 = 1
+imm19_12 = 8
+rd = 5
+opcode = { bits = 7, match = 0 }
+
+[format-fields]
+
+i = { imm = [ "imm11_0" ] }
+s = { imm = [ "imm11_5", "imm4_0" ] }
+b = { imm = [ "imm12", "imm11", "imm10_5", "imm4_1", "0" ] }
+u = { imm = [ "imm31_12", "0000_0000_0000" ] }
+j = { imm = [ "imm20", "imm19_12", "imm11", "imm10_1", "0" ] }
+
+[asm-fields.xreg]
+max_bits = 5
+default_display = "labeled"
+
+[asm-fields.xreg.display]
+numbered = "x{value:unsigned-int}"
+labeled = [
+    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
+    "fp", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
+    "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+    "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
+]
+
+[asm-fields.freg]
+max_bits = 5
+default_display = "labeled"
+
+[asm-fields.freg.display]
+numbered = "x{value:unsigned-int}"
+labeled = [
+    "ft0",  "ft1",  "ft2",  "ft3",  "ft4",  "ft5",  "ft6",  "ft7",
+    "fs0",  "fs1",  "fa0",  "fa1",  "fa2",  "fa3",  "fa4",  "fa5",
+    "fa6",  "fa7",  "fs2",  "fs3",  "fs4",  "fs5",  "fs6",  "fs7",
+    "fs8",  "fs9",  "fs10", "fs11", "ft8",  "ft9",  "ft10", "ft11",
+]
+
+[encoding]
+
+lui   = { format = "u", opcode = "0110111" }
+auipc = { format = "u", opcode = "0010111" }
+
+jal   = { format = "j", opcode = "1101111" }
+
+jalr  = { format = "i", opcode = "1100111", funct3 = "000", rs1 = "rs" }
+
+beq   = { format = "b", opcode = "1100011", funct3 = "000" }
+bne   = { format = "b", opcode = "1100011", funct3 = "001" }
+blt   = { format = "b", opcode = "1100011", funct3 = "100" }
+bge   = { format = "b", opcode = "1100011", funct3 = "101" }
+bltu  = { format = "b", opcode = "1100011", funct3 = "110" }
+bgeu  = { format = "b", opcode = "1100011", funct3 = "111" }
+
+lb    = { format = "i", opcode = "0000011", funct3 = "000", rs1 = "rs" }
+lh    = { format = "i", opcode = "0000011", funct3 = "001", rs1 = "rs" }
+lw    = { format = "i", opcode = "0000011", funct3 = "010", rs1 = "rs" }
+lbu   = { format = "i", opcode = "0000011", funct3 = "100", rs1 = "rs" }
+lhu   = { format = "i", opcode = "0000011", funct3 = "101", rs1 = "rs" }
+
+sb    = { format = "s", opcode = "0100011", funct3 = "000" }
+sh    = { format = "s", opcode = "0100011", funct3 = "001" }
+sw    = { format = "s", opcode = "0100011", funct3 = "010" }
+
+addi  = { format = "i", opcode = "0010011", funct3 = "000", rs1 = "rs" }
+slti  = { format = "i", opcode = "0010011", funct3 = "010", rs1 = "rs" }
+sltiu = { format = "i", opcode = "0010011", funct3 = "011", rs1 = "rs" }
+xori  = { format = "i", opcode = "0010011", funct3 = "100", rs1 = "rs" }
+ori   = { format = "i", opcode = "0010011", funct3 = "110", rs1 = "rs" }
+andi  = { format = "i", opcode = "0010011", funct3 = "111", rs1 = "rs" }
+
+slli  = { format = "r", opcode = "0010011", funct3 = "001", funct7 = "0000000", rs1 = "rs", rs2 = "shamt" }
+srli  = { format = "r", opcode = "0010011", funct3 = "101", funct7 = "0000000", rs1 = "rs", rs2 = "shamt" }
+srai  = { format = "r", opcode = "0010011", funct3 = "101", funct7 = "0100000", rs1 = "rs", rs2 = "shamt" }
+
+add   = { format = "r", opcode = "0110011", funct3 = "000", funct7 = "0000000" }
+sub   = { format = "r", opcode = "0110011", funct3 = "000", funct7 = "0100000" }
+sll   = { format = "r", opcode = "0110011", funct3 = "001", funct7 = "0000000" }
+slt   = { format = "r", opcode = "0110011", funct3 = "010", funct7 = "0000000" }
+sltu  = { format = "r", opcode = "0110011", funct3 = "011", funct7 = "0000000" }
+xor   = { format = "r", opcode = "0110011", funct3 = "100", funct7 = "0000000" }
+srl   = { format = "r", opcode = "0110011", funct3 = "101", funct7 = "0000000" }
+sra   = { format = "r", opcode = "0110011", funct3 = "101", funct7 = "0100000" }
+or    = { format = "r", opcode = "0110011", funct3 = "110", funct7 = "0000000" }
+and   = { format = "r", opcode = "0110011", funct3 = "111", funct7 = "0000000" }
+
+# TODO: Fence
+# fence_tso = { format = "i", opcode = "0001111", imm = "1000_0011_0011", rs1 = "00000", funct3 = "000", rd = "00000" }
+# pause = { format = "i", opcode = "0001111", imm = "0000_0001_0000", rs1 = "00000", funct3 = "000", rd = "00000" }
+
+
+csrrw     = { format = "i", opcode = "1110011", imm11_0 = "csr", funct3 = "001" }
+csrrs     = { format = "i", opcode = "1110011", imm11_0 = "csr", funct3 = "010" }
+csrrc     = { format = "i", opcode = "1110011", imm11_0 = "csr", funct3 = "011" }
+csrrwi    = { format = "i", opcode = "1110011", imm11_0 = "csr", funct3 = "101", rs1 = "uimm" }
+csrrsi    = { format = "i", opcode = "1110011", imm11_0 = "csr", funct3 = "110", rs1 = "uimm" }
+csrrci    = { format = "i", opcode = "1110011", imm11_0 = "csr", funct3 = "111", rs1 = "uimm" }
+
+ecall     = { format = "i", opcode = "1110011", imm11_0 = "000000000000", rs1 = "00000", funct3 = "000", rd = "00000" }
+ebreak    = { format = "i", opcode = "1110011", imm11_0 = "000000000001", rs1 = "00000", funct3 = "000", rd = "00000" }
+
+flw       = { format = "i",  opcode = "0000111", funct3 = "010" }
+fsw       = { format = "s",  opcode = "0100111", funct3 = "010" }
+
+fmadd_s   = { format = "r4", opcode = "1000011", funct3 = "rm", funct2 = "00" }
+fmsub_s   = { format = "r4", opcode = "1000111", funct3 = "rm", funct2 = "00" }
+fnmsub_s  = { format = "r4", opcode = "1001011", funct3 = "rm", funct2 = "00" }
+fnmadd_s  = { format = "r4", opcode = "1001111", funct3 = "rm", funct2 = "00" }
+
+fadd_s    = { format = "r",  opcode = "1010011", funct3 = "rm",                 funct7 = "0000000" }
+fsub_s    = { format = "r",  opcode = "1010011", funct3 = "rm",                 funct7 = "0000100" }
+fmul_s    = { format = "r",  opcode = "1010011", funct3 = "rm",                 funct7 = "0001000" }
+fdiv_s    = { format = "r",  opcode = "1010011", funct3 = "rm",                 funct7 = "0001100" }
+fsqrt_s   = { format = "r",  opcode = "1010011", funct3 = "rm",  rs2 = "00000", funct7 = "0101100" }
+fsgnj_s   = { format = "r",  opcode = "1010011", funct3 = "000",                funct7 = "0010000" }
+fsgnjn_s  = { format = "r",  opcode = "1010011", funct3 = "001",                funct7 = "0010000" }
+fsgnjx_s  = { format = "r",  opcode = "1010011", funct3 = "010",                funct7 = "0010000" }
+fmin_s    = { format = "r",  opcode = "1010011", funct3 = "000",                funct7 = "0010100" }
+fmax_s    = { format = "r",  opcode = "1010011", funct3 = "001",                funct7 = "0010100" }
+fcvt_w_s  = { format = "r",  opcode = "1010011", funct3 = "rm",  rs2 = "00000", funct7 = "1100000" }
+fcvt_wu_s = { format = "r",  opcode = "1010011", funct3 = "rm",  rs2 = "00001", funct7 = "1100000" }
+fmv_x_w   = { format = "r",  opcode = "1010011", funct3 = "000", rs2 = "00000", funct7 = "1110000" }
+feq_s     = { format = "r",  opcode = "1010011", funct3 = "010",                funct7 = "1010000" }
+flt_s     = { format = "r",  opcode = "1010011", funct3 = "001",                funct7 = "1010000" }
+fle_s     = { format = "r",  opcode = "1010011", funct3 = "000",                funct7 = "1010000" }
+fclass_s  = { format = "r",  opcode = "1010011", funct3 = "001", rs2 = "00000", funct7 = "1110000" }
+fcvt_s_w  = { format = "r",  opcode = "1010011", funct3 = "rm",  rs2 = "00000", funct7 = "1101000" }
+fcvt_s_wu = { format = "r",  opcode = "1010011", funct3 = "rm",  rs2 = "00001", funct7 = "1101000" }
+fmv_w_x   = { format = "r",  opcode = "1010011", funct3 = "000", rs2 = "00000", funct7 = "1111000" }
+
+[asm]
+
+lui = { mnemonic = "lui", fields = [ "rd:xreg", "imm:signed-hex" ] }
+auipc = { mnemonic = "auipc", fields = [ "rd:xreg", "imm:signed-hex" ] }
+
+jal = { mnemonic = "jal", fields = [ "rd:xreg", "imm:rel-label"] }
+jalr = { mnemonic = "jalr", fields = [ "rd:xreg", "rs:xreg", "imm:rel-label" ] }
+
+beq  = { mnemonic = "beq",  fields = [ "rs1:xreg", "rs2:xreg", "imm:rel-label" ] }
+bne  = { mnemonic = "bne",  fields = [ "rs1:xreg", "rs2:xreg", "imm:rel-label" ] }
+blt  = { mnemonic = "blt",  fields = [ "rs1:xreg", "rs2:xreg", "imm:rel-label" ] }
+bge  = { mnemonic = "bge",  fields = [ "rs1:xreg", "rs2:xreg", "imm:rel-label" ] }
+bltu = { mnemonic = "bltu", fields = [ "rs1:xreg", "rs2:xreg", "imm:rel-label" ] }
+bgeu = { mnemonic = "bgeu", fields = [ "rs1:xreg", "rs2:xreg", "imm:rel-label" ] }
+
+c_mv = { mnemonic = "c.mv", fields = [] }
+
+# TODO: Fix
+lb  = { mnemonic = "lb",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+lh  = { mnemonic = "lh",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+lw  = { mnemonic = "lw",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+lbu = { mnemonic = "lbu", fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+lhu = { mnemonic = "lhu", fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+
+# TODO: Fix
+sb  = { mnemonic = "sb",  fields = [ "rs1:xreg", "rs2:xreg", "imm:signed-int" ] }
+sh  = { mnemonic = "sh",  fields = [ "rs1:xreg", "rs2:xreg", "imm:signed-int" ] }
+sw  = { mnemonic = "sw",  fields = [ "rs1:xreg", "rs2:xreg", "imm:signed-int" ] }
+
+addi  = { mnemonic = "addi",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+slti  = { mnemonic = "slti",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+sltiu = { mnemonic = "sltiu", fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+xori  = { mnemonic = "xori",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+ori   = { mnemonic = "ori",   fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+andi  = { mnemonic = "andi",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+
+slli  = { mnemonic = "slli",  fields = [ "rd:xreg", "rs:xreg", "shamt:unsigned-int" ] }
+srli  = { mnemonic = "srli",  fields = [ "rd:xreg", "rs:xreg", "shamt:unsigned-int" ] }
+srai  = { mnemonic = "srai",  fields = [ "rd:xreg", "rs:xreg", "shamt:unsigned-int" ] }
+
+add   = { mnemonic = "add",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+sub   = { mnemonic = "sub",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+sll   = { mnemonic = "sll",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+slt   = { mnemonic = "slt",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+sltu  = { mnemonic = "sltu", fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+xor   = { mnemonic = "xor",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+srl   = { mnemonic = "srl",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+sra   = { mnemonic = "sra",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+or    = { mnemonic = "or",   fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+and   = { mnemonic = "and",  fields = [ "rd:xreg", "rs1:xreg", "rs1:xreg" ] }
+
+fence_tso = { mnemonic = "fence.tso", fields = [] }
+pause =     { mnemonic = "pause", fields = [] }
+
+csrrw     = { mnemonic = "csrrw",     fields = [ "rd:xreg", "rs1:xreg", "csr:unsigned-int" ] }
+csrrs     = { mnemonic = "csrrs",     fields = [ "rd:xreg", "rs1:xreg", "csr:unsigned-int" ] }
+csrrc     = { mnemonic = "csrrc",     fields = [ "rd:xreg", "rs1:xreg", "csr:unsigned-int" ] }
+csrrwi    = { mnemonic = "csrrwi",    fields = [ "rd:xreg", "uimm:unsigned-int", "csr:unsigned-int" ] }
+csrrsi    = { mnemonic = "csrrsi",    fields = [ "rd:xreg", "uimm:unsigned-int", "csr:unsigned-int" ] }
+csrrci    = { mnemonic = "csrrci",    fields = [ "rd:xreg", "uimm:unsigned-int", "csr:unsigned-int" ] }
+
+ecall =     { mnemonic = "ecall", fields = [] }
+ebreak =    { mnemonic = "ebreak", fields = [] }
+
+flw       = { mnemonic = "flw",       fields = [ "rd:freg", "rs1:xreg", "imm:signed-int" ] }
+fsw       = { mnemonic = "fsw",       fields = [ "rs1:xreg", "rs2:freg", "imm:signed-int" ] }
+
+fmadd_s   = { mnemonic = "fmadd.s",   fields = [ "rd:freg", "rs1:freg", "rs2:freg", "rs3:freg" ] }
+fmsub_s   = { mnemonic = "fmsub.s",   fields = [ "rd:freg", "rs1:freg", "rs2:freg", "rs3:freg" ] }
+fnmsub_s  = { mnemonic = "fnmsub.s",  fields = [ "rd:freg", "rs1:freg", "rs2:freg", "rs3:freg" ] }
+fnmadd_s  = { mnemonic = "fnmadd.s",  fields = [ "rd:freg", "rs1:freg", "rs2:freg", "rs3:freg" ] }
+                          
+fadd_s    = { mnemonic = "fadd.s",    fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fsub_s    = { mnemonic = "fsub.s",    fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fmul_s    = { mnemonic = "fmul.s",    fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fdiv_s    = { mnemonic = "fdiv.s",    fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fsqrt_s   = { mnemonic = "fsqrt.s",   fields = [ "rd:freg", "rs1:freg" ] }
+fsgnj_s   = { mnemonic = "fsgnj.s",   fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fsgnjn_s  = { mnemonic = "fsgnjn.s",  fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fsgnjx_s  = { mnemonic = "fsgnjx.s",  fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fmin_s    = { mnemonic = "fmin.s",    fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fmax_s    = { mnemonic = "fmax.s",    fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fcvt_w_s  = { mnemonic = "fcvt.w.s",  fields = [ "rd:xreg", "rs1:freg" ] }
+fcvt_wu_s = { mnemonic = "fcvt.wu.s", fields = [ "rd:xreg", "rs1:freg" ] }
+fmv_x_w   = { mnemonic = "fmv.x.w",   fields = [ "rd:xreg", "rs1:freg" ] }
+feq_s     = { mnemonic = "feq.s",     fields = [ "rd:xreg", "rs1:freg", "rs2:freg" ] }
+flt_s     = { mnemonic = "flt.s",     fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fle_s     = { mnemonic = "fle.s",     fields = [ "rd:freg", "rs1:freg", "rs2:freg" ] }
+fclass_s  = { mnemonic = "fclass.s",  fields = [ "rd:xreg", "rs1:freg" ] }
+fcvt_s_w  = { mnemonic = "fcvt.s.w",  fields = [ "rd:freg", "rs1:xreg" ] }
+fcvt_s_wu = { mnemonic = "fcvt.s.wu", fields = [ "rd:freg", "rs1:xreg" ] }
+fmv_w_x   = { mnemonic = "fmv.w.x",   fields = [ "rd:freg", "rs1:xreg" ] }
+
+#
+# [pseudo-instructions]
+#
+# [semantics]
+#
+# [temporality]
+#
+# lui = { class = "reg_op", dependent = [ "register:rd" ] }
+# auipc = { class = "reg_op", dependent = [ "pc", "register:rd" ] }
+#
+# jal = { class = "jump", dependent = [ "register:rd" ] }
+# jalr = { class = "jump", dependent = [ "register:rd", "register:rs" ] }
+#
+# beq = { class = "jump", dependent = [ "register:rs1" ] }
+# bne = { class = "jump", dependent = [ "register:rs1" ] }
+# blt = { class = "jump", dependent = [ "register:rs1" ] }
+# bge = { class = "jump", dependent = [ "register:rs1" ] }
+# bltu = { class = "jump", dependent = [ "register:rs1" ] }
+# bgeu = { class = "jump", dependent = [ "register:rs1" ] }
+#
+# # TODO: Fix
+# lb  = { mnemonic = "lb",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+# lh  = { mnemonic = "lh",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+# lw  = { mnemonic = "lw",  fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+# lbu = { mnemonic = "lbu", fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+# lhu = { mnemonic = "lhu", fields = [ "rd:xreg", "rs:xreg", "imm:signed-int" ] }
+#
+# # TODO: Fix
+# sb  = { mnemonic = "sb",  fields = [ "rs1:xreg", "rs2:xreg", "imm:signed-int" ] }
+# sh  = { mnemonic = "sh",  fields = [ "rs1:xreg", "rs2:xreg", "imm:signed-int" ] }
+# sw  = { mnemonic = "sw",  fields = [ "rs1:xreg", "rs2:xreg", "imm:signed-int" ] }
+#
+# addi  = { mnemonic = "addi",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:signed-int" ] }
+# slti  = { mnemonic = "slti",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:signed-int" ] }
+# sltiu = { mnemonic = "sltiu", fields = [ "rd:xreg", "rs:xreg:rs", "imm:signed-int" ] }
+# xori  = { mnemonic = "xori",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:signed-int" ] }
+# ori   = { mnemonic = "ori",   fields = [ "rd:xreg", "rs:xreg:rs", "imm:signed-int" ] }
+# andi  = { mnemonic = "andi",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:signed-int" ] }
+#
+# slli  = { mnemonic = "slli",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:unsigned-int" ] }
+# srli  = { mnemonic = "srli",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:unsigned-int" ] }
+# srai  = { mnemonic = "srai",  fields = [ "rd:xreg", "rs:xreg:rs", "imm:unsigned-int" ] }
+#
+# add   = { mnemonic = "add",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# sub   = { mnemonic = "sub",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# sll   = { mnemonic = "sll",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# slt   = { mnemonic = "slt",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# sltu  = { mnemonic = "sltu", fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# xor   = { mnemonic = "xor",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# srl   = { mnemonic = "srl",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# sra   = { mnemonic = "sra",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# or    = { mnemonic = "or",   fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+# and   = { mnemonic = "and",  fields = ["rd:xreg", "rs1:xreg", "rs1:xreg"] }
+#
+# fence_tso = { mnemonic = "fence.tso", fields = [] }
+# pause =     { mnemonic = "pause", fields = [] }
+#
+# ecall =     { mnemonic = "ecall", fields = [] }
+# ebreak =    { mnemonic = "ebreak", fields = [] }

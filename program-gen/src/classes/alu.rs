@@ -1,0 +1,25 @@
+define_instruction_class! {
+    AluInstruction {
+        Lui(LuiArgs),
+        Auipc(AuipcArgs),
+        Addi(AddiArgs),
+        Slti(SltiArgs),
+        Sltiu(SltiuArgs),
+        Xori(XoriArgs),
+        Ori(OriArgs),
+        Andi(AndiArgs),
+        Slli(SlliArgs),
+        Srli(SrliArgs),
+        Srai(SraiArgs),
+        Add(AddArgs),
+        Sub(SubArgs),
+        Sll(SllArgs),
+        Slt(SltArgs),
+        Sltu(SltuArgs),
+        Xor(XorArgs),
+        Srl(SrlArgs),
+        Sra(SraArgs),
+        Or(OrArgs),
+        And(AndArgs),
+    }
+}

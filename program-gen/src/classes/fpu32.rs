@@ -1,0 +1,28 @@
+define_instruction_class! {
+    FPU32Instruction {
+        FmaddS(FmaddSArgs),
+        FmsubS(FmsubSArgs),
+        FnmaddS(FnmaddSArgs),
+        FnmsubS(FnmsubSArgs),
+        FaddS(FaddSArgs),
+        FsubS(FsubSArgs),
+        FmulS(FmulSArgs),
+        FdivS(FdivSArgs),
+        FsqrtS(FsqrtSArgs),
+        FsgnjS(FsgnjSArgs),
+        FsgnjnS(FsgnjnSArgs),
+        FsgnjxS(FsgnjxSArgs),
+        FminS(FminSArgs),
+        FmaxS(FmaxSArgs),
+        FcvtWS(FcvtWSArgs),
+        FcvtWuS(FcvtWuSArgs),
+        FmvXW(FmvXWArgs),
+        FeqS(FeqSArgs),
+        FltS(FltSArgs),
+        FleS(FleSArgs),
+        FclassS(FclassSArgs),
+        FcvtSW(FcvtSWArgs),
+        FcvtSWu(FcvtSWuArgs),
+        FmvWX(FmvWXArgs),
+    }
+}

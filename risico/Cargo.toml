@@ -1,0 +1,18 @@
+[package]
+name = "risico"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+object = "^0.30"
+rand = "0.8.5"
+serde = { version = "1.0.152", features = ["derive"] }
+toml = "^0.7"
+rvhwfuzzer-encoding.path = "../instr-encoding"
+softfloat-wrapper = "0.3.4"
+
+[[bin]]
+name = "cli"
+test = false
+bench = false
+path = "src/cli/main.rs"
