@@ -1,5 +1,5 @@
 /target
 /Cargo.lock
-/tests/**/*.o
-/tests/build/*
-!/tests/build/.gitkeep
+/rv-tests/**/*.o
+/rv-tests/build/*
+!/rv-tests/build/.gitkeep

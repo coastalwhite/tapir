@@ -14,7 +14,6 @@ use object::ObjectSection;
 use object::ObjectSymbol;
 use object::SectionFlags;
 use risico::repr::Addr;
-use rvhwfuzzer_encoding::asm::AsmDisplay;
 
 use crate::cli::{CliFlags, RunType};
 
@@ -87,8 +86,9 @@ fn main() {
                         }
 
                         let offset = section_start + i * 4;
-                        let instruction = Instruction::decode(&hex.to_le_bytes())
-                            .map_or("<???>".to_string(), |instruction| AsmDisplay { ctx: &Default::default(), instr: &instruction }.to_string());
+                        let instruction = Instruction::decode(&mut &hex.to_le_bytes()[..])
+                            .unwrap()
+                            .map_or("<???>".to_string(), |instruction| instruction.to_string());
                         writeln!(stdout, "{offset:08x}:\t{hex:08x}\t\t{instruction}")
                             .expect("Failed to write");
                     }

@@ -36,10 +36,9 @@ impl RawImage {
                 break;
             };
 
-            use rvhwfuzzer_encoding::asm::AsmDisplay;
             let instr_data = u32::from_le_bytes(instr_data);
-            let asm = rvhwfuzzer_encoding::Instruction::decode(&instr_data.to_le_bytes())
-                .map_or("<???>".to_string(), |instruction| AsmDisplay { ctx: &Default::default(), instr: &instruction }.to_string());
+            let asm = rvhwfuzzer_encoding::Instruction::decode(&mut &instr_data.to_le_bytes()[..])?
+                .map_or("<???>".to_string(), |instruction| instruction.to_string());
 
             writeln!(
                 stdout,

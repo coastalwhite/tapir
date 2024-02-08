@@ -1,3039 +1,1120 @@
-pub mod asm {
-	#[derive(Debug)]
-	pub struct AsmDisplay<'a, T> {
-		pub ctx: &'a AsmDisplayContext,
-		pub instr: &'a T,
-	}
-	pub trait AsmField {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, ctx: &AsmDisplayContext) -> ::std::fmt::Result;
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmDisplayContext {
-		xreg: 	XregDisplayVariant,
-		freg: 	FregDisplayVariant,
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmSignedInt(u64);
-	impl AsmField for AsmSignedInt {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, _: &AsmDisplayContext) -> ::std::fmt::Result {
-			write!(f, "{}", self.0 as i64)?;
-			Ok(())
-		}
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmUnsignedInt(u64);
-	impl AsmField for AsmUnsignedInt {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, _: &AsmDisplayContext) -> ::std::fmt::Result {
-			write!(f, "{}", self.0 as u64)?;
-			Ok(())
-		}
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmSignedHex(u64);
-	impl AsmField for AsmSignedHex {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, _: &AsmDisplayContext) -> ::std::fmt::Result {
-			write!(f, "{:x}", self.0 as i64)?;
-			Ok(())
-		}
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmUnsignedHex(u64);
-	impl AsmField for AsmUnsignedHex {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, _: &AsmDisplayContext) -> ::std::fmt::Result {
-			write!(f, "{:x}", self.0 as u64)?;
-			Ok(())
-		}
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmRelLabel(u64);
-	impl AsmField for AsmRelLabel {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, _: &AsmDisplayContext) -> ::std::fmt::Result {
-			write!(f, "{}", self.0 as i64)?;
-			Ok(())
-		}
-	}
-	#[derive(Debug, Default)]
-	pub enum XregDisplayVariant {
-		#[default]
-		Labeled,
-		Numbered,
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmXreg(u8, );
-	impl AsmField for AsmXreg {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, ctx: &AsmDisplayContext) -> ::std::fmt::Result {
-			match ctx.xreg {
-				XregDisplayVariant::Labeled => {
-					static LUT: [&str; 32] = ["zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "fp", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6", ];
-					f.write_str(LUT[(self.0 & 0b11111) as usize])?;
-				},
-				XregDisplayVariant::Numbered => {
-					todo!();
-				},
-			}
-			Ok(())
-		}
-	}
-	#[derive(Debug, Default)]
-	pub enum FregDisplayVariant {
-		#[default]
-		Labeled,
-		Numbered,
-	}
-	#[derive(Debug, Default)]
-	pub struct AsmFreg(u8, );
-	impl AsmField for AsmFreg {
-		fn fmt_field(&self, f: &mut ::std::fmt::Formatter<'_>, ctx: &AsmDisplayContext) -> ::std::fmt::Result {
-			match ctx.freg {
-				FregDisplayVariant::Labeled => {
-					static LUT: [&str; 32] = ["ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11", ];
-					f.write_str(LUT[(self.0 & 0b11111) as usize])?;
-				},
-				FregDisplayVariant::Numbered => {
-					todo!();
-				},
-			}
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::AuipcArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("auipc      ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedHex(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::JalArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("jal        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::LuiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("lui        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedHex(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FmsubSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmsub.s    ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs3.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FnmsubSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fnmsub.s   ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs3.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FnmaddSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fnmadd.s   ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs3.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FmaddSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmadd.s    ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs3.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SbArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sb         ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::LwArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("lw         ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::BgeArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("bge        ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::BneArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("bne        ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::LbuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("lbu        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::BltuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("bltu       ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::CsrrwArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("csrrw      ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.csr.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::XoriArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("xori       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::AndiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("andi       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SwArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sw         ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::CsrrsArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("csrrs      ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.csr.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::ShArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sh         ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SltiuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sltiu      ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::LbArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("lb         ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::LhArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("lh         ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::CsrrwiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("csrrwi     ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.uimm.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.csr.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SltiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("slti       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::CsrrcArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("csrrc      ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.csr.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::LhuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("lhu        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FswArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fsw        ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::AddiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("addi       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::BltArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("blt        ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::BgeuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("bgeu       ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::CsrrsiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("csrrsi     ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.uimm.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.csr.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::CsrrciArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("csrrci     ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.uimm.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.csr.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::JalrArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("jalr       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FlwArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("flw        ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::BeqArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("beq        ")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmRelLabel(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::OriArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("ori        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmSignedInt(self.instr.imm().into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FdivSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fdiv.s     ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FsubSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fsub.s     ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FaddSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fadd.s     ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FmulSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmul.s     ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SraiArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("srai       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.shamt.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FeqSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("feq.s      ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::AddArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("add        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SlliArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("slli       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.shamt.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SltuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sltu       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FsgnjxSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fsgnjx.s   ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FltSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("flt.s      ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FsgnjSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fsgnj.s    ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FmaxSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmax.s     ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FsgnjnSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fsgnjn.s   ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FminSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmin.s     ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::XorArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("xor        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SrliArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("srli       ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmUnsignedInt(self.instr.shamt.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SltArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("slt        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SubArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sub        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SllArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sll        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SrlArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("srl        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::SraArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("sra        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FleSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fle.s      ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs2.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::AndArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("and        ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::OrArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("or         ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FcvtWuSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fcvt.wu.s  ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FcvtSWArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fcvt.s.w   ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FcvtSWuArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fcvt.s.wu  ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FsqrtSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fsqrt.s    ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FcvtWSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fcvt.w.s   ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FmvXWArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmv.x.w    ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FmvWXArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fmv.w.x    ")?;
-			AsmFreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmXreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::FclassSArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("fclass.s   ")?;
-			AsmXreg(self.instr.rd.into(), ).fmt_field(f, self.ctx)?;
-			f.write_str(",")?;
-			AsmFreg(self.instr.rs1.into(), ).fmt_field(f, self.ctx)?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::EcallArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("ecall      ")?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::EbreakArgs> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			f.write_str("ebreak     ")?;
-			Ok(())
-		}
-	}
-	impl<'a> ::std::fmt::Display for AsmDisplay<'a, super::Instruction> {
-		fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-			use super::Instruction as I;
-			match self.instr {
-				I::Auipc(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Jal(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Lui(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FmsubS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FnmsubS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FnmaddS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FmaddS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sb(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Lw(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Bge(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Bne(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Lbu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Bltu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Csrrw(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Xori(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Andi(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sw(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Csrrs(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sh(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sltiu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Lb(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Lh(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Csrrwi(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Slti(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Csrrc(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Lhu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Fsw(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Addi(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Blt(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Bgeu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Csrrsi(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Csrrci(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Jalr(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Flw(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Beq(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Ori(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FdivS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FsubS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FaddS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FmulS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Srai(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FeqS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Add(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Slli(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sltu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FsgnjxS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FltS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FsgnjS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FmaxS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FsgnjnS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FminS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Xor(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Srli(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Slt(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sub(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sll(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Srl(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Sra(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FleS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::And(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Or(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FcvtWuS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FcvtSW(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FcvtSWu(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FsqrtS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FcvtWS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FmvXW(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FmvWX(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::FclassS(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Ecall(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-				I::Ebreak(ref args) => AsmDisplay { ctx: self.ctx, instr: args }.fmt(f),
-			}
-		}
-	}
+use std::fmt::Display;
+use std::io;
+
+mod fence_order;
+mod register;
+
+#[derive(Clone, Copy)]
+pub struct CsrIndex(pub u16);
+#[derive(Clone, Copy)]
+pub struct FenceMode(pub u8);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RoundingMode {
+    /// Round to Nearest, Ties to Even,
+    #[default]
+    TiesToEven = 0b000,
+
+    /// Round to Zero
+    ToZero = 0b001,
+    /// Round Down (towards -Infinity)
+    Down = 0b010,
+    /// Round Up (towards Infinity)
+    Up = 0b011,
+    /// Round to Nearest, Ties to Max Magnitude
+    TiesToMaxMagnitude = 0b100,
+
+    Reserved101,
+    Reserved110,
+
+    Dynamic,
+}
+
+impl std::fmt::Display for RoundingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::TiesToEven => "rne",
+            Self::ToZero => "rtz",
+            Self::Down => "rdn",
+            Self::Up => "rup",
+            Self::TiesToMaxMagnitude => "rmm",
+            Self::Reserved101 => "invalid",
+            Self::Reserved110 => "invalid",
+            Self::Dynamic => "dyn",
+        })
+    }
+}
+
+impl RoundingMode {
+    pub fn take_masked(bits: u32) -> Self {
+        match bits & 0b111 {
+            0b000 => Self::TiesToEven,
+            0b001 => Self::ToZero,
+            0b010 => Self::Down,
+            0b011 => Self::Up,
+            0b100 => Self::TiesToMaxMagnitude,
+            0b101 => Self::Reserved101,
+            0b110 => Self::Reserved110,
+            0b111 => Self::Dynamic,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Display for CsrIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+pub use fence_order::FenceOrder;
+pub use register::{FRegIdent, XRegIdent};
+
+#[inline(always)]
+const fn funct3(bits: u32) -> u32 {
+    (bits >> 12) & 0b111
+}
+
+#[inline(always)]
+const fn funct7(bits: u32) -> u32 {
+    (bits >> 25) & 0b111_1111
+}
+
+macro_rules! format_enable {
+    (
+        r
+        $(, funct7 = $funct7:literal)?
+        $(, funct2 = $funct2:literal)?
+        $(, rs2    = $rs2:literal   )?
+        $(, rs1    = $rs1:literal   )?
+        $(, funct3 = $funct3:literal)?
+        $(, rd     = $rd:literal    )?
+    ) => {
+        0u32
+            $( | { $funct7; 0b111_1111u32 << 25 } )?
+            $( | { $funct2;       0b11u32 << 25 } )?
+            $( | { $rs2   ;   0b1_1111u32 << 20 } )?
+            $( | { $rs1   ;   0b1_1111u32 << 15 } )?
+            $( | { $funct3;      0b111u32 << 12 } )?
+            $( | { $rd    ;   0b1_1111u32 << 07 } )?
+    };
+    (
+        s
+        $(, imm11_0 = $imm11_0:literal )?
+        $(, rs2     = $rs2:literal    )?
+        $(, rs1     = $rs1:literal    )?
+        $(, funct3  = $funct3:literal )?
+    ) => {
+        0u32
+            $( | compile_error!($imm11_0); )?
+            $( | { $rs2   ; 0b1_1111u32 << 20 } )?
+            $( | { $rs1   ; 0b1_1111u32 << 15 } )?
+            $( | { $funct3;    0b111u32 << 12 } )?
+    };
+    (
+        i
+        $(, funct7_6_3 = $funct7_6_3:literal)?
+        $(, funct7     = $funct7:literal    )?
+        $(, imm11_0    = $imm11_0:literal   )?
+        $(, rs1        = $rs1:literal       )?
+        $(, funct3     = $funct3:literal    )?
+        $(, rd         = $rd:literal        )?
+    ) => {
+        0u32
+            $( | { $funct7_6_3 ; 0b1111u32     << 28 } )?
+            $( | { $funct7     ; 0b111_1111u32 << 25 } )?
+            $( | { $imm11_0    ; 0b1_1111u32   << 20 } )?
+            $( | { $rs1        ; 0b1_1111u32   << 15 } )?
+            $( | { $funct3     ;    0b111u32   << 12 } )?
+            $( | { $rd         ; 0b1_1111u32   << 07 } )?
+    };
+    (
+        b
+        $(, imm12_1 = $imm12_1:literal )?
+        $(, rs2     = $rs2:literal    )?
+        $(, rs1     = $rs1:literal    )?
+        $(, funct3  = $funct3:literal )?
+    ) => {
+        0u32
+            $( | compile_error!($imm12_1); )?
+            $( | { $rs2   ; 0b1_1111u32 << 20 } )?
+            $( | { $rs1   ; 0b1_1111u32 << 15 } )?
+            $( | { $funct3;    0b111u32 << 12 } )?
+    };
+    (
+        u
+        $(, imm31_12 = $imm31_12:literal)?
+        $(, rd       = $rd:literal    )?
+    ) => {
+        0u32
+            $( | { $imm31_12; 0xFFFF_Fu32 << 12 } )?
+            $( | { $rd      ; 0b1111_1u32 << 07 } )?
+    };
+    (
+        j
+        $(, imm20_1 = $imm20_1:literal )?
+        $(, rd      = $rd:literal      )?
+    ) => {
+        0u32
+            $( | { $imm20_1; 0xFFFF_Fu32 << 12 } )?
+            $( | { $rd     ; 0b1111_1u32 << 07 } )?
+    };
+}
+
+macro_rules! format_mask {
+    (
+        r
+        $(, funct7 = $funct7:literal)?
+        $(, funct2 = $funct2:literal)?
+        $(, rs2    = $rs2:literal   )?
+        $(, rs1    = $rs1:literal   )?
+        $(, funct3 = $funct3:literal)?
+        $(, rd     = $rd:literal    )?
+    ) => {
+        0u32
+            $( | { const FUNCT7: u32 = $funct7; FUNCT7 << 25 } )?
+            $( | { const FUNCT2: u32 = $funct2; FUNCT2 << 25 } )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 20 } )?
+            $( | { const RS1:    u32 = $rs1   ; RS1    << 15 } )?
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 12 } )?
+            $( | { const RD:     u32 = $rd    ; RD     << 07 } )?
+    };
+    (
+        i
+        $(, funct7_6_3 = $funct7_6_3:literal)?
+        $(, funct7     = $funct7:literal    )?
+        $(, imm11_0    = $imm11_0:literal   )?
+        $(, rs1        = $rs1:literal       )?
+        $(, funct3     = $funct3:literal    )?
+        $(, rd         = $rd:literal        )?
+    ) => {
+        0u32
+            $( | { const FUNCT7_6_3: u32 = $funct7_6_3; FUNCT7_6_3 << 28 } )?
+            $( | { const FUNCT7:     u32 = $funct7    ; FUNCT7     << 25 } )?
+            $( | { const IMM11_0:    u32 = $imm11_0   ; IMM11_0    << 20 } )?
+            $( | { const RS1:        u32 = $rs1       ; RS1        << 15 } )?
+            $( | { const FUNCT3:     u32 = $funct3    ; FUNCT3     << 12 } )?
+            $( | { const RD:         u32 = $rd        ; RD         << 07 } )?
+    };
+    (
+        s
+        $(, imm11_0 = $imm11_0:literal )?
+        $(, rs2     = $rs2:literal    )?
+        $(, rs1     = $rs1:literal    )?
+        $(, funct3  = $funct3:literal )?
+    ) => {
+        0u32
+            $( | compile_error!($imm11_0); )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 20 } )?
+            $( | { const RS1:    u32 = $rs1   ; RS2    << 15 } )?
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 12 } )?
+    };
+    (
+        b
+        $(, imm12_1 = $imm12_1:literal )?
+        $(, rs2     = $rs2:literal    )?
+        $(, rs1     = $rs1:literal    )?
+        $(, funct3  = $funct3:literal )?
+    ) => {
+        0u32
+            $( | compile_error!($imm12_1); )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 20 } )?
+            $( | { const RS1:    u32 = $rs1   ; RS2    << 15 } )?
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 12 } )?
+    };
+    (
+        u
+        $(, imm31_12 = $imm31_12:literal)?
+        $(, rd       = $rd:literal    )?
+    ) => {
+        0u32
+            $( | { const IMM31_12: u32 = $imm31_12; IMM31_12 << 12 } )?
+            $( | { const RD:       u32 = $rd      ; RD       << 07 } )?
+    };
+    (
+        j
+        $(, imm20_1 = $imm20_1:literal )?
+        $(, rd      = $rd:literal      )?
+    ) => {
+        0u32
+            $( | compile_error!($imm20_1); )?
+            $( | { const RD:       u32 = $rd      ; RD       << 07 } )?
+    };
+}
+
+#[rustfmt::skip]
+macro_rules! format_num_bytes {
+    (r) => { 4 };
+    (i) => { 4 };
+    (s) => { 4 };
+    (b) => { 4 };
+    (u) => { 4 };
+    (j) => { 4 };
+}
+
+macro_rules! method {
+    (freg_rd) => {
+        #[inline(always)]
+        pub fn rd(self) -> FRegIdent {
+            FRegIdent::take_masked(self.0 >> 7)
+        }
+    };
+    (freg_rs1) => {
+        #[inline(always)]
+        pub fn rs1(self) -> FRegIdent {
+            FRegIdent::take_masked(self.0 >> 15)
+        }
+    };
+    (freg_rs2) => {
+        #[inline(always)]
+        pub fn rs2(self) -> FRegIdent {
+            FRegIdent::take_masked(self.0 >> 20)
+        }
+    };
+    (freg_rs3) => {
+        #[inline(always)]
+        pub fn rs3(self) -> FRegIdent {
+            FRegIdent::take_masked(self.0 >> 27)
+        }
+    };
+    (rm) => {
+        #[inline(always)]
+        pub fn rm(self) -> RoundingMode {
+            RoundingMode::take_masked(self.0 >> 12)
+        }
+    };
+    (xreg_rd) => {
+        #[inline(always)]
+        pub fn rd(self) -> XRegIdent {
+            XRegIdent::take_masked(self.0 >> 7)
+        }
+    };
+    (xreg_rs1) => {
+        #[inline(always)]
+        pub fn rs1(self) -> XRegIdent {
+            XRegIdent::take_masked(self.0 >> 15)
+        }
+    };
+    (xreg_rs2) => {
+        #[inline(always)]
+        pub fn rs2(self) -> XRegIdent {
+            XRegIdent::take_masked(self.0 >> 20)
+        }
+    };
+    (shamt) => {
+        #[inline(always)]
+        pub fn shamt(self) -> u8 {
+            ((self.0 >> 20) & 0b11111) as u8
+        }
+    };
+    (csr) => {
+        #[inline]
+        pub fn csr(self) -> CsrIndex {
+            CsrIndex(((self.0 >> 20) & 0xFFF) as u16)
+        }
+    };
+    (csr_uimm) => {
+        #[inline]
+        pub fn uimm(self) -> u8 {
+            ((self.0 >> 15) & 0b11111) as u8
+        }
+    };
+    (itype_imm_unsigned) => {
+        #[inline]
+        pub fn imm(self) -> u32 {
+            (self.0 >> 20) & 0xFFF
+        }
+    };
+    (itype_imm_signed) => {
+        #[inline]
+        pub fn imm(self) -> i32 {
+            // Not straight forward because we need to sign extend
+
+            let imm = self.0 & 0xFFF0_0000;
+            let imm = imm as i32;
+            let imm = imm >> 20;
+
+            imm
+        }
+    };
+    (stype_imm) => {
+        #[inline]
+        pub fn imm(self) -> i32 {
+            // Not straight forward because we need to sign extend
+
+            let imm = self.0 & 0xFE00_0000;
+            let imm = imm as i32;
+            let imm = imm >> 20;
+
+            let imm4_0 = (imm >> 7) & 0x1F;
+
+            let imm = imm | imm4_0 as i32;
+
+            imm
+        }
+    };
+    (btype_imm) => {
+        #[inline]
+        pub fn imm(self) -> i32 {
+            // Not straight forward because we need to sign extend
+
+            let imm = self.0 as i32;
+            let imm = imm >> 19;
+            let imm = imm & !0xFFF;
+
+            let imm11 = (self.0 >> 7) & 1;
+            let imm10_5 = (self.0 >> 25) & 0x3F;
+            let imm4_1 = (self.0 >> 8) & 0xF;
+
+            let imm = imm | (imm11 << 11) as i32 | (imm10_5 << 5) as i32 | (imm4_1 << 1) as i32;
+
+            imm
+        }
+    };
+    (jtype_imm) => {
+        #[inline]
+        pub fn imm(self) -> i32 {
+            // Not straight forward because we need to sign extend
+
+            let imm = self.0 as i32;
+            let imm = imm >> 11;
+            let imm = imm & !0xF_FFFF;
+
+            let imm19_12 = self.0 & 0xF_F000;
+            let imm11 = (self.0 >> 20) & 1;
+            let imm10_1 = (self.0 >> 21) & 0x3FF;
+
+            let imm = imm | imm19_12 as i32 | (imm11 << 11) as i32 | (imm10_1 << 1) as i32;
+
+            imm
+        }
+    };
+    (utype_imm) => {
+        #[inline(always)]
+        pub fn imm(self) -> u32 {
+            self.0 & 0xFFFF_F000
+        }
+    };
+    (fm) => {
+        #[inline(always)]
+        pub fn fm(self) -> FenceMode {
+            FenceMode((self.0 >> 28) as u8)
+        }
+    };
+    (pred) => {
+        #[inline(always)]
+        pub fn pred(self) -> FenceOrder {
+            FenceOrder::take_masked(self.0 >> 24)
+        }
+    };
+    (succ) => {
+        #[inline(always)]
+        pub fn succ(self) -> FenceOrder {
+            FenceOrder::take_masked(self.0 >> 20)
+        }
+    };
+}
+
+macro_rules! instructions {
+    (
+        $(
+            $name:ident
+            (
+                $mnemonic:literal,
+                $opcode:literal,
+                $format:ident $(, $field:ident = $value:literal)* $(,)?
+            )
+            (
+                $($method:ident),* $(,)?
+            )
+        ),+
+        $(,)?
+    ) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[repr(u16)]
+        pub enum InstructionVariant {
+            $($name,)+
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+        #[repr(u16)]
+        pub enum Instruction {
+            $($name($name),)+
+        }
+
+        impl InstructionVariant {
+            pub const NUM_INSTRUCTIONS: usize = 0 $( + { $mnemonic; 1 } )+;
+            const MNEMONIC_LUT: [&'static str; Self::NUM_INSTRUCTIONS] = [
+                $($mnemonic,)+
+            ];
+
+            pub const fn mnemonic(self) -> &'static str {
+                Self::MNEMONIC_LUT[self as u16 as usize]
+            }
+        }
+
+        $(
+        #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name(u32);
+
+        impl $name {
+            pub const NUM_BYTES: usize = format_num_bytes!($format);
+            pub const MNEMONIC: &'static str = $mnemonic;
+
+            #[inline(always)]
+            pub fn matches(bits: u32) -> bool {
+                const ENABLE: u32 = format_enable!($format$(, $field = $value)*) | $opcode;
+                const MASK: u32 = format_mask!($format$(, $field = $value)*) | $opcode;
+
+                bits & ENABLE == MASK
+            }
+
+            #[inline]
+            pub fn take(bits: u32) -> Option<Self> {
+                Self::matches(bits).then_some(Self(bits))
+            }
+
+            #[inline(always)]
+            pub fn take_unchecked(bits: u32) -> Self {
+                debug_assert!(Self::matches(bits), "Invalid take for {} (0x{:08x})", Self::MNEMONIC, bits);
+                Self(bits)
+            }
+
+            #[inline(always)]
+            pub fn encode_as_u32(self) -> u32 {
+                self.0
+            }
+
+            #[inline]
+            pub fn encode(self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
+                writer.write_all(&self.0.to_le_bytes()[..Self::NUM_BYTES])
+            }
+
+            $(
+            method!($method);
+            )*
+        }
+        )+
+
+        impl InstructionVariant {
+            pub fn into_instruction(self, bits: u32) -> Option<Instruction> {
+                match self {
+                    $(
+                    Self::$name => {
+                        let encoding = $name::take(bits)?;
+                        Some(Instruction::$name(encoding))
+                    },
+                    )+
+                }
+            }
+
+            pub fn into_instruction_unchecked(self, bits: u32) -> Instruction {
+                match self {
+                    $(
+                    Self::$name => {
+                        let encoding = $name::take_unchecked(bits);
+                        Instruction::$name(encoding)
+                    },
+                    )+
+                }
+            }
+        }
+
+        impl std::fmt::Display for Instruction {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                    Self::$name(i) => i.fmt(f),
+                    )+
+                }
+            }
+        }
+
+        impl Instruction {
+            #[inline(always)]
+            pub fn encode_as_u32(self) -> u32 {
+                match self {
+                    $(
+                    Self::$name(args) => args.encode_as_u32(),
+                    )+
+                }
+            }
+
+            pub fn encode(self, writer: &mut impl io::Write) -> io::Result<()> {
+                let bits = self.encode_as_u32();
+
+                let num_bytes = if bits & 0b11 == 0b11 {
+                    4
+                } else {
+                    2
+                };
+
+                writer.write_all(&bits.to_le_bytes()[..num_bytes])
+            }
+        }
+    };
+}
+
+fn decode_compressed(_bits: u16) -> Option<InstructionVariant> {
+    None
 }
-#[derive(Debug)]
-pub struct AuipcArgs {
-	pub rd: u8,
-	pub imm31_12: u32,
-}
-impl AuipcArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm31_12: ((encoded >> 12) & 0b11111111111111111111) as u32,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000000010111;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm31_12 as u32) << 12;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm31_12 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm31_12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct JalArgs {
-	pub imm20: u8,
-	pub imm10_1: u16,
-	pub imm11: u8,
-	pub rd: u8,
-	pub imm19_12: u8,
-}
-impl JalArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm20: ((encoded >> 31) & 0b1) as u8,
-			imm10_1: ((encoded >> 21) & 0b1111111111) as u16,
-			imm11: ((encoded >> 20) & 0b1) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm19_12: ((encoded >> 12) & 0b11111111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001101111;
-		encoded |= (self.imm20 as u32) << 31;
-		encoded |= (self.imm10_1 as u32) << 21;
-		encoded |= (self.imm11 as u32) << 20;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm19_12 as u32) << 12;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm20 @ imm19_12 @ imm11 @ imm10_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm10_1 as u32) << 1) | ((self.imm11 as u32) << 11) | ((self.imm19_12 as u32) << 12) | ((self.imm20 as u32) << 20) | 0
-	}
-}
-#[derive(Debug)]
-pub struct LuiArgs {
-	pub rd: u8,
-	pub imm31_12: u32,
-}
-impl LuiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm31_12: ((encoded >> 12) & 0b11111111111111111111) as u32,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000000110111;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm31_12 as u32) << 12;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm31_12 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm31_12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct FmsubSArgs {
-	pub rm: u8,
-	pub rs3: u8,
-	pub rs2: u8,
-	pub rd: u8,
-	pub rs1: u8,
-}
-impl FmsubSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rs3: ((encoded >> 27) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001000111;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rs3 as u32) << 27;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs1 as u32) << 15;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FnmsubSArgs {
-	pub rm: u8,
-	pub rs3: u8,
-	pub rs2: u8,
-	pub rd: u8,
-	pub rs1: u8,
-}
-impl FnmsubSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rs3: ((encoded >> 27) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001001011;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rs3 as u32) << 27;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs1 as u32) << 15;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FnmaddSArgs {
-	pub rm: u8,
-	pub rs3: u8,
-	pub rs2: u8,
-	pub rd: u8,
-	pub rs1: u8,
-}
-impl FnmaddSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rs3: ((encoded >> 27) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001001111;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rs3 as u32) << 27;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs1 as u32) << 15;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FmaddSArgs {
-	pub rm: u8,
-	pub rs3: u8,
-	pub rs2: u8,
-	pub rd: u8,
-	pub rs1: u8,
-}
-impl FmaddSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rs3: ((encoded >> 27) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001000011;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rs3 as u32) << 27;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs1 as u32) << 15;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SbArgs {
-	pub rs1: u8,
-	pub imm11_5: u8,
-	pub imm4_0: u8,
-	pub rs2: u8,
-}
-impl SbArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm11_5: ((encoded >> 25) & 0b1111111) as u8,
-			imm4_0: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000000100011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm11_5 as u32) << 25;
-		encoded |= (self.imm4_0 as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_5 @ imm4_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm4_0 as u32) << 0) | ((self.imm11_5 as u32) << 5) | 0
-	}
-}
-#[derive(Debug)]
-pub struct LwArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl LwArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000000000011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct BgeArgs {
-	pub imm10_5: u8,
-	pub rs1: u8,
-	pub imm4_1: u8,
-	pub imm12: u8,
-	pub rs2: u8,
-	pub imm11: u8,
-}
-impl BgeArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm10_5: ((encoded >> 25) & 0b111111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm4_1: ((encoded >> 8) & 0b1111) as u8,
-			imm12: ((encoded >> 31) & 0b1) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			imm11: ((encoded >> 7) & 0b1) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000101000001100011;
-		encoded |= (self.imm10_5 as u32) << 25;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm4_1 as u32) << 8;
-		encoded |= (self.imm12 as u32) << 31;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.imm11 as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm12 @ imm11 @ imm10_5 @ imm4_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm4_1 as u32) << 1) | ((self.imm10_5 as u32) << 5) | ((self.imm11 as u32) << 11) | ((self.imm12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct BneArgs {
-	pub imm10_5: u8,
-	pub rs1: u8,
-	pub imm4_1: u8,
-	pub imm12: u8,
-	pub rs2: u8,
-	pub imm11: u8,
-}
-impl BneArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm10_5: ((encoded >> 25) & 0b111111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm4_1: ((encoded >> 8) & 0b1111) as u8,
-			imm12: ((encoded >> 31) & 0b1) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			imm11: ((encoded >> 7) & 0b1) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000001000001100011;
-		encoded |= (self.imm10_5 as u32) << 25;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm4_1 as u32) << 8;
-		encoded |= (self.imm12 as u32) << 31;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.imm11 as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm12 @ imm11 @ imm10_5 @ imm4_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm4_1 as u32) << 1) | ((self.imm10_5 as u32) << 5) | ((self.imm11 as u32) << 11) | ((self.imm12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct LbuArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl LbuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000100000000000011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct BltuArgs {
-	pub imm10_5: u8,
-	pub rs1: u8,
-	pub imm4_1: u8,
-	pub imm12: u8,
-	pub rs2: u8,
-	pub imm11: u8,
-}
-impl BltuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm10_5: ((encoded >> 25) & 0b111111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm4_1: ((encoded >> 8) & 0b1111) as u8,
-			imm12: ((encoded >> 31) & 0b1) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			imm11: ((encoded >> 7) & 0b1) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000110000001100011;
-		encoded |= (self.imm10_5 as u32) << 25;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm4_1 as u32) << 8;
-		encoded |= (self.imm12 as u32) << 31;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.imm11 as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm12 @ imm11 @ imm10_5 @ imm4_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm4_1 as u32) << 1) | ((self.imm10_5 as u32) << 5) | ((self.imm11 as u32) << 11) | ((self.imm12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct CsrrwArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub csr: u16,
-}
-impl CsrrwArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			csr: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000001000001110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.csr as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct XoriArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl XoriArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000100000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct AndiArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl AndiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000111000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct SwArgs {
-	pub rs1: u8,
-	pub imm11_5: u8,
-	pub imm4_0: u8,
-	pub rs2: u8,
-}
-impl SwArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm11_5: ((encoded >> 25) & 0b1111111) as u8,
-			imm4_0: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000000100011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm11_5 as u32) << 25;
-		encoded |= (self.imm4_0 as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_5 @ imm4_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm4_0 as u32) << 0) | ((self.imm11_5 as u32) << 5) | 0
-	}
-}
-#[derive(Debug)]
-pub struct CsrrsArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub csr: u16,
-}
-impl CsrrsArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			csr: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000001110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.csr as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct ShArgs {
-	pub rs1: u8,
-	pub imm11_5: u8,
-	pub imm4_0: u8,
-	pub rs2: u8,
-}
-impl ShArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm11_5: ((encoded >> 25) & 0b1111111) as u8,
-			imm4_0: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000001000000100011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm11_5 as u32) << 25;
-		encoded |= (self.imm4_0 as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_5 @ imm4_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm4_0 as u32) << 0) | ((self.imm11_5 as u32) << 5) | 0
-	}
-}
-#[derive(Debug)]
-pub struct SltiuArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl SltiuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000011000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct LbArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl LbArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000000000011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct LhArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl LhArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000001000000000011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct CsrrwiArgs {
-	pub uimm: u8,
-	pub rd: u8,
-	pub csr: u16,
-}
-impl CsrrwiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			uimm: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			csr: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000101000001110011;
-		encoded |= (self.uimm as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.csr as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SltiArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl SltiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct CsrrcArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub csr: u16,
-}
-impl CsrrcArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			csr: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000011000001110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.csr as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct LhuArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl LhuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000101000000000011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct FswArgs {
-	pub rs1: u8,
-	pub imm11_5: u8,
-	pub imm4_0: u8,
-	pub rs2: u8,
-}
-impl FswArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm11_5: ((encoded >> 25) & 0b1111111) as u8,
-			imm4_0: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000000100111;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm11_5 as u32) << 25;
-		encoded |= (self.imm4_0 as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_5 @ imm4_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm4_0 as u32) << 0) | ((self.imm11_5 as u32) << 5) | 0
-	}
-}
-#[derive(Debug)]
-pub struct AddiArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl AddiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct BltArgs {
-	pub imm10_5: u8,
-	pub rs1: u8,
-	pub imm4_1: u8,
-	pub imm12: u8,
-	pub rs2: u8,
-	pub imm11: u8,
-}
-impl BltArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm10_5: ((encoded >> 25) & 0b111111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm4_1: ((encoded >> 8) & 0b1111) as u8,
-			imm12: ((encoded >> 31) & 0b1) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			imm11: ((encoded >> 7) & 0b1) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000100000001100011;
-		encoded |= (self.imm10_5 as u32) << 25;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm4_1 as u32) << 8;
-		encoded |= (self.imm12 as u32) << 31;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.imm11 as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm12 @ imm11 @ imm10_5 @ imm4_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm4_1 as u32) << 1) | ((self.imm10_5 as u32) << 5) | ((self.imm11 as u32) << 11) | ((self.imm12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct BgeuArgs {
-	pub imm10_5: u8,
-	pub rs1: u8,
-	pub imm4_1: u8,
-	pub imm12: u8,
-	pub rs2: u8,
-	pub imm11: u8,
-}
-impl BgeuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm10_5: ((encoded >> 25) & 0b111111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm4_1: ((encoded >> 8) & 0b1111) as u8,
-			imm12: ((encoded >> 31) & 0b1) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			imm11: ((encoded >> 7) & 0b1) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000111000001100011;
-		encoded |= (self.imm10_5 as u32) << 25;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm4_1 as u32) << 8;
-		encoded |= (self.imm12 as u32) << 31;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.imm11 as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm12 @ imm11 @ imm10_5 @ imm4_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm4_1 as u32) << 1) | ((self.imm10_5 as u32) << 5) | ((self.imm11 as u32) << 11) | ((self.imm12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct CsrrsiArgs {
-	pub uimm: u8,
-	pub rd: u8,
-	pub csr: u16,
-}
-impl CsrrsiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			uimm: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			csr: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000110000001110011;
-		encoded |= (self.uimm as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.csr as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct CsrrciArgs {
-	pub uimm: u8,
-	pub rd: u8,
-	pub csr: u16,
-}
-impl CsrrciArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			uimm: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			csr: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000111000001110011;
-		encoded |= (self.uimm as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.csr as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct JalrArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl JalrArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001100111;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct FlwArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl FlwArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000000000111;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct BeqArgs {
-	pub imm10_5: u8,
-	pub rs1: u8,
-	pub imm4_1: u8,
-	pub imm12: u8,
-	pub rs2: u8,
-	pub imm11: u8,
-}
-impl BeqArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			imm10_5: ((encoded >> 25) & 0b111111) as u8,
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			imm4_1: ((encoded >> 8) & 0b1111) as u8,
-			imm12: ((encoded >> 31) & 0b1) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-			imm11: ((encoded >> 7) & 0b1) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001100011;
-		encoded |= (self.imm10_5 as u32) << 25;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.imm4_1 as u32) << 8;
-		encoded |= (self.imm12 as u32) << 31;
-		encoded |= (self.rs2 as u32) << 20;
-		encoded |= (self.imm11 as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm12 @ imm11 @ imm10_5 @ imm4_1 @ 0 @ 
-	pub fn imm(&self) -> u32 {
-		((0b0 as u32) << 0) | ((self.imm4_1 as u32) << 1) | ((self.imm10_5 as u32) << 5) | ((self.imm11 as u32) << 11) | ((self.imm12 as u32) << 12) | 0
-	}
-}
-#[derive(Debug)]
-pub struct OriArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub imm11_0: u16,
-}
-impl OriArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			imm11_0: ((encoded >> 20) & 0b111111111111) as u16,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000110000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.imm11_0 as u32) << 20;
 
-		writer.write_all(&encoded.to_le_bytes())
-	}
-	/// imm11_0 @ 
-	pub fn imm(&self) -> u32 {
-		((self.imm11_0 as u32) << 0) | 0
-	}
-}
-#[derive(Debug)]
-pub struct FdivSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FdivSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00011000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FsubSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FsubSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00001000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FaddSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FaddSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FmulSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FmulSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00010000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SraiArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub shamt: u8,
-}
-impl SraiArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			shamt: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b01000000000000000101000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.shamt as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FeqSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FeqSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b10100000000000000010000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct AddArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl AddArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SlliArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub shamt: u8,
-}
-impl SlliArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			shamt: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000001000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.shamt as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SltuArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl SltuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000011000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FsgnjxSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FsgnjxSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00100000000000000010000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FltSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FltSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b10100000000000000001000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FsgnjSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FsgnjSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00100000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FmaxSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FmaxSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00101000000000000001000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FsgnjnSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FsgnjnSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00100000000000000001000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FminSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FminSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00101000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct XorArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl XorArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000100000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SrliArgs {
-	pub rs: u8,
-	pub rd: u8,
-	pub shamt: u8,
-}
-impl SrliArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			shamt: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000101000000010011;
-		encoded |= (self.rs as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.shamt as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SltArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl SltArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000010000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SubArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl SubArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b01000000000000000000000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SllArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl SllArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000001000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SrlArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl SrlArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000101000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct SraArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl SraArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b01000000000000000101000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FleSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl FleSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b10100000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct AndArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl AndArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000111000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct OrArgs {
-	pub rs1: u8,
-	pub rd: u8,
-	pub rs2: u8,
-}
-impl OrArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-			rs2: ((encoded >> 20) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000110000000110011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-		encoded |= (self.rs2 as u32) << 20;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FcvtWuSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-}
-impl FcvtWuSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11000000000100000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FcvtSWArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-}
-impl FcvtSWArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11010000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FcvtSWuArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-}
-impl FcvtSWuArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11010000000100000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FsqrtSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-}
-impl FsqrtSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b01011000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FcvtWSArgs {
-	pub rs1: u8,
-	pub rm: u8,
-	pub rd: u8,
-}
-impl FcvtWSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rm: ((encoded >> 12) & 0b111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11000000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rm as u32) << 12;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FmvXWArgs {
-	pub rs1: u8,
-	pub rd: u8,
-}
-impl FmvXWArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11100000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FmvWXArgs {
-	pub rs1: u8,
-	pub rd: u8,
-}
-impl FmvWXArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11110000000000000000000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct FclassSArgs {
-	pub rs1: u8,
-	pub rd: u8,
-}
-impl FclassSArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-			rs1: ((encoded >> 15) & 0b11111) as u8,
-			rd: ((encoded >> 7) & 0b11111) as u8,
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b11100000000000000001000001010011;
-		encoded |= (self.rs1 as u32) << 15;
-		encoded |= (self.rd as u32) << 7;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct EcallArgs {
-}
-impl EcallArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000000000000000001110011;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub struct EbreakArgs {
-}
-impl EbreakArgs {
-	pub fn take_args(encoded: u32) -> Self {
-		Self {
-		}
-	}
-	pub fn encode(&self, writer: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-		let mut encoded: u32 = 0b00000000000100000000000001110011;
-
-		writer.write_all(&encoded.to_le_bytes())
-	}
-}
-#[derive(Debug)]
-pub enum Instruction {
-	Auipc(AuipcArgs),
-	Jal(JalArgs),
-	Lui(LuiArgs),
-	FmsubS(FmsubSArgs),
-	FnmsubS(FnmsubSArgs),
-	FnmaddS(FnmaddSArgs),
-	FmaddS(FmaddSArgs),
-	Sb(SbArgs),
-	Lw(LwArgs),
-	Bge(BgeArgs),
-	Bne(BneArgs),
-	Lbu(LbuArgs),
-	Bltu(BltuArgs),
-	Csrrw(CsrrwArgs),
-	Xori(XoriArgs),
-	Andi(AndiArgs),
-	Sw(SwArgs),
-	Csrrs(CsrrsArgs),
-	Sh(ShArgs),
-	Sltiu(SltiuArgs),
-	Lb(LbArgs),
-	Lh(LhArgs),
-	Csrrwi(CsrrwiArgs),
-	Slti(SltiArgs),
-	Csrrc(CsrrcArgs),
-	Lhu(LhuArgs),
-	Fsw(FswArgs),
-	Addi(AddiArgs),
-	Blt(BltArgs),
-	Bgeu(BgeuArgs),
-	Csrrsi(CsrrsiArgs),
-	Csrrci(CsrrciArgs),
-	Jalr(JalrArgs),
-	Flw(FlwArgs),
-	Beq(BeqArgs),
-	Ori(OriArgs),
-	FdivS(FdivSArgs),
-	FsubS(FsubSArgs),
-	FaddS(FaddSArgs),
-	FmulS(FmulSArgs),
-	Srai(SraiArgs),
-	FeqS(FeqSArgs),
-	Add(AddArgs),
-	Slli(SlliArgs),
-	Sltu(SltuArgs),
-	FsgnjxS(FsgnjxSArgs),
-	FltS(FltSArgs),
-	FsgnjS(FsgnjSArgs),
-	FmaxS(FmaxSArgs),
-	FsgnjnS(FsgnjnSArgs),
-	FminS(FminSArgs),
-	Xor(XorArgs),
-	Srli(SrliArgs),
-	Slt(SltArgs),
-	Sub(SubArgs),
-	Sll(SllArgs),
-	Srl(SrlArgs),
-	Sra(SraArgs),
-	FleS(FleSArgs),
-	And(AndArgs),
-	Or(OrArgs),
-	FcvtWuS(FcvtWuSArgs),
-	FcvtSW(FcvtSWArgs),
-	FcvtSWu(FcvtSWuArgs),
-	FsqrtS(FsqrtSArgs),
-	FcvtWS(FcvtWSArgs),
-	FmvXW(FmvXWArgs),
-	FmvWX(FmvWXArgs),
-	FclassS(FclassSArgs),
-	Ecall(EcallArgs),
-	Ebreak(EbreakArgs),
-}
 impl Instruction {
-	pub fn decode(encoded: &[u8]) -> Option<Instruction> {
-		let bits: u32 = u32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3], ]);
-		if bits & 0b00000000000000000000000001111111 == 0b00000000000000000000000000010111 {
-			return Some(Self::Auipc(AuipcArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000000000001111111 == 0b00000000000000000000000001101111 {
-			return Some(Self::Jal(JalArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000000000001111111 == 0b00000000000000000000000000110111 {
-			return Some(Self::Lui(LuiArgs::take_args(bits)));
-		}
-		if bits & 0b00000110000000000000000001111111 == 0b00000000000000000000000001000111 {
-			return Some(Self::FmsubS(FmsubSArgs::take_args(bits)));
-		}
-		if bits & 0b00000110000000000000000001111111 == 0b00000000000000000000000001001011 {
-			return Some(Self::FnmsubS(FnmsubSArgs::take_args(bits)));
-		}
-		if bits & 0b00000110000000000000000001111111 == 0b00000000000000000000000001001111 {
-			return Some(Self::FnmaddS(FnmaddSArgs::take_args(bits)));
-		}
-		if bits & 0b00000110000000000000000001111111 == 0b00000000000000000000000001000011 {
-			return Some(Self::FmaddS(FmaddSArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000000000000100011 {
-			return Some(Self::Sb(SbArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000010000000000011 {
-			return Some(Self::Lw(LwArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000101000001100011 {
-			return Some(Self::Bge(BgeArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000001000001100011 {
-			return Some(Self::Bne(BneArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000100000000000011 {
-			return Some(Self::Lbu(LbuArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000110000001100011 {
-			return Some(Self::Bltu(BltuArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000001000001110011 {
-			return Some(Self::Csrrw(CsrrwArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000100000000010011 {
-			return Some(Self::Xori(XoriArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000111000000010011 {
-			return Some(Self::Andi(AndiArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000010000000100011 {
-			return Some(Self::Sw(SwArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000010000001110011 {
-			return Some(Self::Csrrs(CsrrsArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000001000000100011 {
-			return Some(Self::Sh(ShArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000011000000010011 {
-			return Some(Self::Sltiu(SltiuArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000000000000000011 {
-			return Some(Self::Lb(LbArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000001000000000011 {
-			return Some(Self::Lh(LhArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000101000001110011 {
-			return Some(Self::Csrrwi(CsrrwiArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000010000000010011 {
-			return Some(Self::Slti(SltiArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000011000001110011 {
-			return Some(Self::Csrrc(CsrrcArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000101000000000011 {
-			return Some(Self::Lhu(LhuArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000010000000100111 {
-			return Some(Self::Fsw(FswArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000000000000010011 {
-			return Some(Self::Addi(AddiArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000100000001100011 {
-			return Some(Self::Blt(BltArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000111000001100011 {
-			return Some(Self::Bgeu(BgeuArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000110000001110011 {
-			return Some(Self::Csrrsi(CsrrsiArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000111000001110011 {
-			return Some(Self::Csrrci(CsrrciArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000000000001100111 {
-			return Some(Self::Jalr(JalrArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000010000000000111 {
-			return Some(Self::Flw(FlwArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000000000001100011 {
-			return Some(Self::Beq(BeqArgs::take_args(bits)));
-		}
-		if bits & 0b00000000000000000111000001111111 == 0b00000000000000000110000000010011 {
-			return Some(Self::Ori(OriArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000000000001111111 == 0b00011000000000000000000001010011 {
-			return Some(Self::FdivS(FdivSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000000000001111111 == 0b00001000000000000000000001010011 {
-			return Some(Self::FsubS(FsubSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000000000001111111 == 0b00000000000000000000000001010011 {
-			return Some(Self::FaddS(FaddSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000000000001111111 == 0b00010000000000000000000001010011 {
-			return Some(Self::FmulS(FmulSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b01000000000000000101000000010011 {
-			return Some(Self::Srai(SraiArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b10100000000000000010000001010011 {
-			return Some(Self::FeqS(FeqSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000000000000110011 {
-			return Some(Self::Add(AddArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000001000000010011 {
-			return Some(Self::Slli(SlliArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000011000000110011 {
-			return Some(Self::Sltu(SltuArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00100000000000000010000001010011 {
-			return Some(Self::FsgnjxS(FsgnjxSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b10100000000000000001000001010011 {
-			return Some(Self::FltS(FltSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00100000000000000000000001010011 {
-			return Some(Self::FsgnjS(FsgnjSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00101000000000000001000001010011 {
-			return Some(Self::FmaxS(FmaxSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00100000000000000001000001010011 {
-			return Some(Self::FsgnjnS(FsgnjnSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00101000000000000000000001010011 {
-			return Some(Self::FminS(FminSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000100000000110011 {
-			return Some(Self::Xor(XorArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000101000000010011 {
-			return Some(Self::Srli(SrliArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000010000000110011 {
-			return Some(Self::Slt(SltArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b01000000000000000000000000110011 {
-			return Some(Self::Sub(SubArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000001000000110011 {
-			return Some(Self::Sll(SllArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000101000000110011 {
-			return Some(Self::Srl(SrlArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b01000000000000000101000000110011 {
-			return Some(Self::Sra(SraArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b10100000000000000000000001010011 {
-			return Some(Self::FleS(FleSArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000111000000110011 {
-			return Some(Self::And(AndArgs::take_args(bits)));
-		}
-		if bits & 0b11111110000000000111000001111111 == 0b00000000000000000110000000110011 {
-			return Some(Self::Or(OrArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000000000001111111 == 0b11000000000100000000000001010011 {
-			return Some(Self::FcvtWuS(FcvtWuSArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000000000001111111 == 0b11010000000000000000000001010011 {
-			return Some(Self::FcvtSW(FcvtSWArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000000000001111111 == 0b11010000000100000000000001010011 {
-			return Some(Self::FcvtSWu(FcvtSWuArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000000000001111111 == 0b01011000000000000000000001010011 {
-			return Some(Self::FsqrtS(FsqrtSArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000000000001111111 == 0b11000000000000000000000001010011 {
-			return Some(Self::FcvtWS(FcvtWSArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000111000001111111 == 0b11100000000000000000000001010011 {
-			return Some(Self::FmvXW(FmvXWArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000111000001111111 == 0b11110000000000000000000001010011 {
-			return Some(Self::FmvWX(FmvWXArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111100000111000001111111 == 0b11100000000000000001000001010011 {
-			return Some(Self::FclassS(FclassSArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111111111111111111111111 == 0b00000000000000000000000001110011 {
-			return Some(Self::Ecall(EcallArgs::take_args(bits)));
-		}
-		if bits & 0b11111111111111111111111111111111 == 0b00000000000100000000000001110011 {
-			return Some(Self::Ebreak(EbreakArgs::take_args(bits)));
-		}
-		None
-	}
+    pub fn decode(reader: &mut impl io::Read) -> io::Result<Option<Instruction>> {
+        let mut fst = 0;
+        reader.read_exact(std::slice::from_mut(&mut fst))?;
+
+        // Compressed instruction
+        if fst & 0b11 != 0b11 {
+            let mut snd = 0;
+            reader.read_exact(std::slice::from_mut(&mut snd))?;
+
+            let bits = u16::from_le_bytes([fst, snd]);
+            let Some(variant) = decode_compressed(bits) else {
+                return Ok(None);
+            };
+
+            return Ok(Some(variant.into_instruction_unchecked(bits as u32)));
+        }
+
+        let mut bytes = [0u8; 3];
+        reader.read_exact(&mut bytes)?;
+
+        let bits = u32::from_le_bytes([fst, bytes[0], bytes[1], bytes[2]]);
+
+        #[rustfmt::skip]
+        static DECODE_LUT: [fn(u32) -> Option<InstructionVariant>; 32] = [
+            decode_load,     // 00 - 000
+            decode_load_fp,    // 00 - 001
+            opcode_00010,    // 00 - 010
+            decode_misc_mem, // 00 - 011
+            decode_op_imm,   // 00 - 100
+            decode_auipc,    // 00 - 101
+            opcode_00110,    // 00 - 110
+            opcode_00111,    // 00 - 111
+            decode_store,    // 01 - 000
+            decode_store_fp,    // 01 - 001
+            opcode_01010,    // 01 - 010
+            opcode_01011,    // 01 - 011
+            decode_op,       // 01 - 100
+            decode_lui,      // 01 - 101
+            opcode_01110,    // 01 - 110
+            opcode_01111,    // 01 - 111
+            decode_madd,    // 10 - 000
+            decode_msub,    // 10 - 001
+            decode_nmsub,    // 10 - 010
+            decode_nmadd,    // 10 - 011
+            decode_op_fp,    // 10 - 100
+            opcode_10101,    // 10 - 101
+            opcode_10110,    // 10 - 110
+            opcode_10111,    // 10 - 111
+            decode_branch,   // 11 - 000
+            decode_jalr,     // 11 - 001
+            opcode_11010,    // 11 - 010
+            decode_jal,      // 11 - 011
+            decode_system,   // 11 - 100
+            opcode_11101,    // 11 - 101
+            opcode_11110,    // 11 - 110
+            opcode_11111,    // 11 - 111
+        ];
+        let lut_offset = (fst >> 2) & 0b11111;
+        let decode_fn = DECODE_LUT[lut_offset as usize];
+
+        let Some(variant) = decode_fn(bits) else {
+            return Ok(None);
+        };
+
+        let instruction = variant.into_instruction_unchecked(bits);
+
+        Ok(Some(instruction))
+    }
+}
+
+fn decode_load(bits: u32) -> Option<InstructionVariant> {
+    use InstructionVariant as V;
+
+    let funct3 = funct3(bits);
+
+    #[rustfmt::skip]
+    static LUT: [Option<InstructionVariant>; 8] = [
+        Some(V::Lb),  Some(V::Lh),  Some(V::Lw), None, // 000
+        Some(V::Lbu), Some(V::Lhu), None,        None, // 100
+    ];
+
+    LUT[funct3 as usize]
+}
+
+fn decode_load_fp(bits: u32) -> Option<InstructionVariant> {
+    let funct3 = funct3(bits);
+
+    match funct3 {
+        0b010 => Some(InstructionVariant::Flw),
+        _ => None,
+    }
+}
+fn opcode_00010(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn decode_misc_mem(bits: u32) -> Option<InstructionVariant> {
+    let funct3 = funct3(bits);
+
+    match funct3 {
+        0b000 => Some(InstructionVariant::Fence),
+        0b001 => Some(InstructionVariant::FenceI),
+        _ => None,
+    }
+}
+fn decode_op_imm(bits: u32) -> Option<InstructionVariant> {
+    use InstructionVariant as V;
+
+    let funct3 = funct3(bits);
+    let funct7 = funct7(bits);
+
+    #[rustfmt::skip]
+    static LUT: [InstructionVariant; 8] = [
+        V::Addi, V::Slli, V::Slti, V::Sltiu, // 000
+        V::Xori, V::Srli, V::Ori,  V::Andi,  // 100
+    ];
+
+    let instr = LUT[funct3 as usize];
+
+    if matches!(instr, V::Slli) && funct7 != 0b000_0000 {
+        return None;
+    } else if matches!(instr, V::Srli) {
+        if funct7 == 0b000_0000 {
+            return Some(instr);
+        } else if funct7 == 0b010_0000 {
+            return Some(V::Srai);
+        } else {
+            return None;
+        }
+    }
+
+    Some(LUT[funct3 as usize])
+}
+fn decode_auipc(_: u32) -> Option<InstructionVariant> {
+    Some(InstructionVariant::Auipc)
+}
+fn opcode_00110(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_00111(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn decode_store(bits: u32) -> Option<InstructionVariant> {
+    use InstructionVariant as V;
+
+    let funct3 = funct3(bits);
+
+    #[rustfmt::skip]
+    static LUT: [Option<InstructionVariant>; 8] = [
+        Some(V::Sb),  Some(V::Sh),  Some(V::Sw), None, // 000
+        None,         None,         None,        None, // 100
+    ];
+
+    LUT[funct3 as usize]
+}
+fn decode_store_fp(bits: u32) -> Option<InstructionVariant> {
+    let funct3 = funct3(bits);
+
+    match funct3 {
+        0b010 => Some(InstructionVariant::Fsw),
+        _ => None,
+    }
+}
+fn opcode_01010(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_01011(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn decode_op(bits: u32) -> Option<InstructionVariant> {
+    use InstructionVariant as V;
+
+    let funct3 = funct3(bits);
+    let funct7 = funct7(bits);
+
+    match funct7 {
+        0b000_0000 => {
+            #[rustfmt::skip]
+            static LUT: [InstructionVariant; 8] = [
+                V::Add, V::Sll, V::Slt, V::Sltu, // 000
+                V::Xor, V::Srl, V::Or,  V::And,  // 100
+            ];
+            Some(LUT[funct3 as usize])
+        }
+        0b010_0000 => {
+            #[rustfmt::skip]
+            static LUT: [Option<InstructionVariant>; 8] = [
+                Some(V::Sub), None,         None, None, // 000
+                None,         Some(V::Sra), None, None, // 100
+            ];
+            LUT[funct3 as usize]
+        }
+        _ => None,
+    }
+}
+fn decode_lui(_: u32) -> Option<InstructionVariant> {
+    Some(InstructionVariant::Lui)
+}
+fn opcode_01110(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_01111(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn decode_madd(bits: u32) -> Option<InstructionVariant> {
+    if (bits >> 25) & 0b11 == 0b00 {
+        return Some(InstructionVariant::FmaddS);
+    }
+
+    None
+}
+fn decode_msub(bits: u32) -> Option<InstructionVariant> {
+    if (bits >> 25) & 0b11 == 0b00 {
+        return Some(InstructionVariant::FmsubS);
+    }
+
+    None
+}
+fn decode_nmsub(bits: u32) -> Option<InstructionVariant> {
+    if (bits >> 25) & 0b11 == 0b00 {
+        return Some(InstructionVariant::FnmsubS);
+    }
+
+    None
+}
+fn decode_nmadd(bits: u32) -> Option<InstructionVariant> {
+    if (bits >> 25) & 0b11 == 0b00 {
+        return Some(InstructionVariant::FnmaddS);
+    }
+
+    None
+}
+fn decode_op_fp(bits: u32) -> Option<InstructionVariant> {
+    let funct7 = funct7(bits);
+    let funct3 = funct3(bits);
+    let rs2 = (bits >> 20) & 0b11111;
+
+    match (funct7, rs2, funct3) {
+        (0b000_0000, _, _) => Some(InstructionVariant::FaddS),
+        (0b000_0100, _, _) => Some(InstructionVariant::FsubS),
+        (0b000_1000, _, _) => Some(InstructionVariant::FmulS),
+        (0b000_1100, _, _) => Some(InstructionVariant::FdivS),
+        (0b010_1100, 0b00000, _) => Some(InstructionVariant::FsqrtS),
+        (0b001_0000, _, 0b000) => Some(InstructionVariant::FsgnjS),
+        (0b001_0000, _, 0b001) => Some(InstructionVariant::FsgnjnS),
+        (0b001_0000, _, 0b010) => Some(InstructionVariant::FsgnjxS),
+        (0b001_0100, _, 0b000) => Some(InstructionVariant::FminS),
+        (0b001_0100, _, 0b001) => Some(InstructionVariant::FmaxS),
+        (0b110_0000, 0b00000, _) => Some(InstructionVariant::FcvtWS),
+        (0b110_0000, 0b00001, _) => Some(InstructionVariant::FcvtWuS),
+        (0b111_0000, 0b00000, 0b000) => Some(InstructionVariant::FmvXW),
+        (0b101_0000, _, 0b010) => Some(InstructionVariant::FeqS),
+        (0b101_0000, _, 0b001) => Some(InstructionVariant::FltS),
+        (0b101_0000, _, 0b000) => Some(InstructionVariant::FleS),
+        (0b111_0000, 0b00000, 0b001) => Some(InstructionVariant::FclassS),
+        (0b110_1000, 0b00000, _) => Some(InstructionVariant::FcvtSW),
+        (0b110_1000, 0b00001, _) => Some(InstructionVariant::FcvtSWu),
+        (0b111_1000, 0b00000, 0b000) => Some(InstructionVariant::FmvWX),
+        _ => None,
+    }
+}
+fn opcode_10101(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_10110(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_10111(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn decode_branch(bits: u32) -> Option<InstructionVariant> {
+    use InstructionVariant as V;
+
+    let funct3 = funct3(bits);
+
+    #[rustfmt::skip]
+    static LUT: [Option<InstructionVariant>; 8] = [
+        Some(V::Beq), Some(V::Bne), None,          None,          // 000
+        Some(V::Blt), Some(V::Bge), Some(V::Bltu), Some(V::Bgeu), // 000
+    ];
+
+    LUT[funct3 as usize]
+}
+fn decode_jalr(bits: u32) -> Option<InstructionVariant> {
+    if (bits >> 12) & 0b111 != 0 {
+        return None;
+    }
+
+    Some(InstructionVariant::Jalr)
+}
+fn opcode_11010(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn decode_jal(_: u32) -> Option<InstructionVariant> {
+    Some(InstructionVariant::Jal)
+}
+fn decode_system(bits: u32) -> Option<InstructionVariant> {
+    let funct3 = funct3(bits);
+
+    match funct3 {
+        0b000 if Ecall::matches(bits) => Some(InstructionVariant::Ecall),
+        0b000 if Ebreak::matches(bits) => Some(InstructionVariant::Ebreak),
+        0b001 => Some(InstructionVariant::Csrrw),
+        0b010 => Some(InstructionVariant::Csrrs),
+        0b011 => Some(InstructionVariant::Csrrc),
+        0b101 => Some(InstructionVariant::Csrrwi),
+        0b110 => Some(InstructionVariant::Csrrsi),
+        0b111 => Some(InstructionVariant::Csrrci),
+        _ => None,
+    }
+}
+fn opcode_11101(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_11110(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+fn opcode_11111(_bits: u32) -> Option<InstructionVariant> {
+    None
+}
+
+instructions! {
+    Lui   ("lui",   0b011_0111, u                                     ) (xreg_rd, utype_imm),
+    Auipc ("auipc", 0b001_0111, u                                     ) (xreg_rd, utype_imm),
+
+    Jal   ("jal",   0b110_1111, j                                     ) (xreg_rd, jtype_imm),
+    Jalr  ("jalr",  0b110_0111, i, funct3 = 0b000                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+
+    Beq   ("beq",   0b110_0011, b, funct3 = 0b000                     ) (xreg_rs1, xreg_rs2, btype_imm),
+    Bne   ("bne",   0b110_0011, b, funct3 = 0b001                     ) (xreg_rs1, xreg_rs2, btype_imm),
+    Blt   ("blt",   0b110_0011, b, funct3 = 0b100                     ) (xreg_rs1, xreg_rs2, btype_imm),
+    Bge   ("bge",   0b110_0011, b, funct3 = 0b101                     ) (xreg_rs1, xreg_rs2, btype_imm),
+    Bltu  ("bltu",  0b110_0011, b, funct3 = 0b110                     ) (xreg_rs1, xreg_rs2, btype_imm),
+    Bgeu  ("bgeu",  0b110_0011, b, funct3 = 0b111                     ) (xreg_rs1, xreg_rs2, btype_imm),
+
+    Lb    ("lb",    0b000_0011, i, funct3 = 0b000                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Lh    ("lh",    0b000_0011, i, funct3 = 0b001                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Lw    ("lw",    0b000_0011, i, funct3 = 0b010                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Lbu   ("lbu",   0b000_0011, i, funct3 = 0b100                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Lhu   ("lhu",   0b000_0011, i, funct3 = 0b101                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+
+    Sb    ("sb",    0b010_0011, s, funct3 = 0b000                     ) (xreg_rs1, xreg_rs2, stype_imm),
+    Sh    ("sh",    0b010_0011, s, funct3 = 0b001                     ) (xreg_rs1, xreg_rs2, stype_imm),
+    Sw    ("sw",    0b010_0011, s, funct3 = 0b010                     ) (xreg_rs1, xreg_rs2, stype_imm),
+
+    Addi  ("addi",  0b001_0011, i,                      funct3 = 0b000) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Slti  ("slti",  0b001_0011, i,                      funct3 = 0b010) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Sltiu ("sltiu", 0b001_0011, i,                      funct3 = 0b011) (xreg_rd, xreg_rs1, itype_imm_unsigned),
+    Xori  ("xori",  0b001_0011, i,                      funct3 = 0b100) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Ori   ("ori",   0b001_0011, i,                      funct3 = 0b110) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Andi  ("andi",  0b001_0011, i,                      funct3 = 0b111) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Slli  ("slli",  0b001_0011, i, funct7 = 0b000_0000, funct3 = 0b001) (xreg_rd, xreg_rs1, shamt),
+    Srli  ("srli",  0b001_0011, i, funct7 = 0b000_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, shamt),
+    Srai  ("srai",  0b001_0011, i, funct7 = 0b010_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, shamt),
+
+    Add   ("add",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b000) (xreg_rd, xreg_rs1, xreg_rs2),
+    Sub   ("sub",   0b011_0011, r, funct7 = 0b010_0000, funct3 = 0b000) (xreg_rd, xreg_rs1, xreg_rs2),
+    Sll   ("sll",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b001) (xreg_rd, xreg_rs1, xreg_rs2),
+    Slt   ("slt",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b010) (xreg_rd, xreg_rs1, xreg_rs2),
+    Sltu  ("sltu",  0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b011) (xreg_rd, xreg_rs1, xreg_rs2),
+    Xor   ("xor",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b100) (xreg_rd, xreg_rs1, xreg_rs2),
+    Srl   ("srl",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, xreg_rs2),
+    Sra   ("sra",   0b011_0011, r, funct7 = 0b010_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, xreg_rs2),
+    Or    ("or",    0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b110) (xreg_rd, xreg_rs1, xreg_rs2),
+    And   ("and",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b111) (xreg_rd, xreg_rs1, xreg_rs2),
+
+    Fence ("fence", 0b000_1111, i,
+        funct7_6_3 = 0b0000  ,
+        rs1        = 0b0_0000,
+        funct3     = 0b000   ,
+        rd         = 0b0_0000,
+    ) (fm, pred, succ),
+
+    Ecall ("ecall", 0b111_0011, i,
+        imm11_0    = 0x000   ,
+        rs1        = 0b0_0000,
+        funct3     = 0b000   ,
+        rd         = 0b0_0000,
+    ) (),
+    Ebreak ("ebreak", 0b111_0011, i,
+        imm11_0    = 0x001   ,
+        rs1        = 0b0_0000,
+        funct3     = 0b000   ,
+        rd         = 0b0_0000,
+    ) (),
+
+    // Zfencei
+    FenceI ("fence.i", 0b000_1111, i, funct3 = 0b001) (xreg_rd, xreg_rs1, itype_imm_unsigned),
+
+    // Zcsr
+    Csrrw  ("csrrw",   0b111_0011, i, funct3 = 0b001) (xreg_rd, xreg_rs1, csr),
+    Csrrs  ("csrrs",   0b111_0011, i, funct3 = 0b010) (xreg_rd, xreg_rs1, csr),
+    Csrrc  ("csrrc",   0b111_0011, i, funct3 = 0b011) (xreg_rd, xreg_rs1, csr),
+    Csrrwi ("csrrwi",  0b111_0011, i, funct3 = 0b101) (xreg_rd, csr_uimm, csr),
+    Csrrsi ("csrrsi",  0b111_0011, i, funct3 = 0b110) (xreg_rd, csr_uimm, csr),
+    Csrrci ("csrrci",  0b111_0011, i, funct3 = 0b111) (xreg_rd, csr_uimm, csr),
+
+    // RV32F
+    Flw     ("flw",       0b000_0111, i, funct3 = 0b010)                                     (freg_rd, xreg_rs1, itype_imm_signed),
+    Fsw     ("fsw",       0b010_0111, s, funct3 = 0b010)                                     (xreg_rs1, freg_rs2, stype_imm),
+
+    FmaddS  ("fmadd.s",   0b100_0011, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
+    FmsubS  ("fmsub.s",   0b100_0111, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
+    FnmsubS ("fnmsub.s",  0b100_1011, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
+    FnmaddS ("fnmadd.s",  0b100_1111, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
+
+    FaddS   ("fadd.s",    0b101_0011, r, funct7 = 0b000_0000)                                (freg_rd, freg_rs1, freg_rs2, rm),
+    FsubS   ("fsub.s",    0b101_0011, r, funct7 = 0b000_0100)                                (freg_rd, freg_rs1, freg_rs2, rm),
+    FmulS   ("fmul.s",    0b101_0011, r, funct7 = 0b000_1000)                                (freg_rd, freg_rs1, freg_rs2, rm),
+    FdivS   ("fdiv.s",    0b101_0011, r, funct7 = 0b000_1100)                                (freg_rd, freg_rs1, freg_rs2, rm),
+    FsqrtS  ("fsqrt.s",   0b101_0011, r, funct7 = 0b010_1100, rs2 = 0b00000)                 (freg_rd, freg_rs1, rm),
+
+    FsgnjS  ("fsgnj.s",   0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b000)                (freg_rd, freg_rs1, freg_rs2),
+    FsgnjnS ("fsgnjn.s",  0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b001)                (freg_rd, freg_rs1, freg_rs2),
+    FsgnjxS ("fsgnjx.s",  0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b010)                (freg_rd, freg_rs1, freg_rs2),
+
+    FmaxS   ("fmax.s",    0b101_0011, r, funct7 = 0b001_0100, funct3 = 0b000)                (freg_rd, freg_rs1, freg_rs2),
+    FminS   ("fmin.s",    0b101_0011, r, funct7 = 0b001_0100, funct3 = 0b001)                (freg_rd, freg_rs1, freg_rs2),
+
+    FcvtWS  ("fcvt.w.s",  0b101_0011, r, funct7 = 0b110_0000, rs2 = 0b00000)                 (xreg_rd, freg_rs1, rm),
+    FcvtWuS ("fcvt.wu.s", 0b101_0011, r, funct7 = 0b110_0000, rs2 = 0b00001)                 (xreg_rd, freg_rs1, rm),
+
+    FmvXW   ("fmv.x.w",   0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (xreg_rd, freg_rs1),
+
+    FeqS    ("feq.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b010)                (xreg_rd, freg_rs1, freg_rs2),
+    FltS    ("flt.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b001)                (xreg_rd, freg_rs1, freg_rs2),
+    FleS    ("fle.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b000)                (xreg_rd, freg_rs1, freg_rs2),
+
+    FclassS ("fclass.s",  0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (xreg_rd, freg_rs1),
+
+    FcvtSW  ("fcvt.s.w",  0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00000)                 (freg_rd, xreg_rs1, rm),
+    FcvtSWu ("fcvt.s.wu", 0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00001)                 (freg_rd, xreg_rs1, rm),
+
+    FmvWX   ("fmv.w.x",   0b101_0011, r, funct7 = 0b111_1000, rs2 = 0b00000, funct3 = 0b000) (freg_rd, xreg_rs1),
+}
+
+macro_rules! asm_display {
+    (
+        [$instr:ident]
+        $( $name:ident $(($format:literal$(, $arg:expr)* $(,)?))? ),+ $(,)?
+    ) => {
+        $(
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                #[allow(unused_variables)]
+                let $instr = self;
+                write!(f, "{:<12}", Self::MNEMONIC)?;
+                $(
+                write!(f, $format$(, $arg)*)?;
+                )?
+
+                Ok(())
+            }
+        }
+        )+
+    };
+}
+
+asm_display! {
+    [i]
+    Lui   ("{},0x{:05x}", i.rd(), i.imm() >> 12),
+    Auipc ("{},0x{:05x}", i.rd(), i.imm() >> 12),
+
+    Jal   ("{},{}", i.rd(), i.imm()),
+    Jalr  ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+
+    Beq   ("{},{},{}", i.rs1(), i.rs2(), i.imm()),
+    Bne   ("{},{},{}", i.rs1(), i.rs2(), i.imm()),
+    Blt   ("{},{},{}", i.rs1(), i.rs2(), i.imm()),
+    Bge   ("{},{},{}", i.rs1(), i.rs2(), i.imm()),
+    Bltu  ("{},{},{}", i.rs1(), i.rs2(), i.imm()),
+    Bgeu  ("{},{},{}", i.rs1(), i.rs2(), i.imm()),
+
+    Lb    ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    Lh    ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    Lw    ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    Lbu   ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    Lhu   ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+
+    Sb    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
+    Sh    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
+    Sw    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
+
+    Addi  ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+    Slti  ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+    Sltiu ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+    Xori  ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+    Ori   ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+    Andi  ("{},{},{}", i.rd(), i.rs1(), i.imm()),
+    Slli  ("{},{},{}", i.rd(), i.rs1(), i.shamt()),
+    Srli  ("{},{},{}", i.rd(), i.rs1(), i.shamt()),
+    Srai  ("{},{},{}", i.rd(), i.rs1(), i.shamt()),
+
+    Add   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Sub   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Sll   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Slt   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Sltu  ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Xor   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Srl   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Sra   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Or    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    And   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+
+    Fence ("{},{}", i.pred(), i.succ()),
+
+    Ecall,
+    Ebreak,
+
+    // Zfencei
+    FenceI,
+
+    // Zcsr
+    Csrrw  ("{},{},{}", i.rd(), i.csr(), i.rs1()),
+    Csrrs  ("{},{},{}", i.rd(), i.csr(), i.rs1()),
+    Csrrc  ("{},{},{}", i.rd(), i.csr(), i.rs1()),
+    Csrrwi ("{},{},{}", i.rd(), i.csr(), i.uimm()),
+    Csrrsi ("{},{},{}", i.rd(), i.csr(), i.uimm()),
+    Csrrci ("{},{},{}", i.rd(), i.csr(), i.uimm()),
+
+    // RV32F
+    Flw    ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    Fsw    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
+
+    FmaddS  ("{},{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rs3(), i.rm()),
+    FmsubS  ("{},{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rs3(), i.rm()),
+    FnmsubS ("{},{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rs3(), i.rm()),
+    FnmaddS ("{},{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rs3(), i.rm()),
+
+    FaddS   ("{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rm()),
+    FsubS   ("{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rm()),
+    FmulS   ("{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rm()),
+    FdivS   ("{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rm()),
+    FsqrtS  ("{},{},{}", i.rd(), i.rs1(), i.rm()),
+
+    FsgnjS  ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    FsgnjnS ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    FsgnjxS ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+
+    FmaxS   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    FminS   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+
+    FcvtWS  ("{},{},{}", i.rd(), i.rs1(), i.rm()),
+    FcvtWuS ("{},{},{}", i.rd(), i.rs1(), i.rm()),
+
+    FmvXW   ("{},{}",    i.rd(), i.rs1()),
+
+    FeqS    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    FltS    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    FleS    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+
+    FclassS ("{},{}", i.rd(), i.rs1()),
+
+    FcvtSW  ("{},{},{}", i.rd(), i.rs1(), i.rm()),
+    FcvtSWu ("{},{},{}", i.rd(), i.rs1(), i.rm()),
+
+    FmvWX   ("{},{}", i.rd(), i.rs1()),
 }

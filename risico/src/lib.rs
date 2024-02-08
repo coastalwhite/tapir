@@ -1,6 +1,5 @@
 // mod decode;
 mod execute;
-mod register;
 mod csr;
 pub mod repr;
 
@@ -17,7 +16,6 @@ pub mod syscall;
 
 // pub use decode::Instruction;
 pub use execute::State;
-pub use register::RegIdent;
 
 use self::device_config::{Isa, Section};
 use self::memory::MappedMemory;

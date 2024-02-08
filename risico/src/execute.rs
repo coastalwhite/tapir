@@ -3,8 +3,7 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::process::exit;
 
-use rvhwfuzzer_encoding::asm::AsmDisplay;
-
+use rvhwfuzzer_encoding::{XRegIdent, FRegIdent};
 use ::softfloat_wrapper::{Float, F32};
 
 use crate::csr::ControlStatusRegisters;
@@ -12,7 +11,6 @@ use crate::csr::fcsr::ExceptionFlags;
 use crate::device_config::Isa;
 use crate::driver::cache::CacheResult;
 use crate::memory::{BackingStore, MappedMemory};
-use crate::register::{FRegIdent, RegIdent};
 use crate::repr::{Addr, Offset, Size, Word};
 use crate::syscall::{SystemCallBehavior, SystemCallResult};
 use crate::util::sign_extend;
@@ -74,8 +72,8 @@ impl Registers {
     }
 
     #[inline]
-    pub fn get(&self, ident: RegIdent) -> Word {
-        if ident == RegIdent::X0 {
+    pub fn get(&self, ident: XRegIdent) -> Word {
+        if ident == XRegIdent::Zero {
             return Word::default();
         }
 
@@ -83,8 +81,8 @@ impl Registers {
     }
 
     #[inline]
-    pub fn set(&mut self, ident: RegIdent, value: impl Into<Word>) -> Word {
-        if ident == RegIdent::X0 {
+    pub fn set(&mut self, ident: XRegIdent, value: impl Into<Word>) -> Word {
+        if ident == XRegIdent::Zero {
             return Word::default();
         }
 
@@ -119,8 +117,8 @@ impl<M: BackingStore> Debug for State<M> {
         writeln!(f, "")?;
         writeln!(f, "GP-Registers:")?;
         for i in 0..16 {
-            let lhs_ident = RegIdent::from(i);
-            let rhs_ident = RegIdent::from(i + 16);
+            let lhs_ident = XRegIdent::take_masked(i);
+            let rhs_ident = XRegIdent::take_masked(i + 16);
 
             let lhs = self.registers.get(lhs_ident).as_i32();
             let rhs = self.registers.get(rhs_ident).as_i32();
@@ -208,7 +206,8 @@ impl<M: BackingStore> State<M> {
     }
 
     pub fn instruction_decode(&mut self, imemory: Word) -> rvhwfuzzer_encoding::Instruction {
-        let Some(instruction) = rvhwfuzzer_encoding::Instruction::decode(&imemory.to_le_bytes()) else {
+        let mut imemory_bytes = &imemory.to_le_bytes()[..];
+        let Some(instruction) = rvhwfuzzer_encoding::Instruction::decode(&mut imemory_bytes).unwrap() else {
             panic!(
                 "unknown instruction 0x{:08x} at pc=0x{:08x}",
                 imemory.as_addr(),
@@ -223,17 +222,17 @@ impl<M: BackingStore> State<M> {
 
         let mut next_pc = self.pc().offset(4);
 
-        // eprintln!("[PC={:08X}]: {}", self.pc(), AsmDisplay { ctx: &Default::default(), instr: &instruction });
+        eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
 
         match instruction {
             Lui(args) => {
                 self.instruction_counter += 1;
-                self.registers.set(args.rd.into(), args.imm());
+                self.registers.set(args.rd(), args.imm());
             }
             Auipc(args) => {
                 self.instruction_counter += 1;
 
-                let rd = args.rd.into();
+                let rd = args.rd();
                 let offset = Offset::from(args.imm() as i32);
 
                 self.registers.set(rd, self.pc().offset(offset));
@@ -241,102 +240,93 @@ impl<M: BackingStore> State<M> {
             Jal(args) => {
                 self.instruction_counter += 1;
 
-                let rd = args.rd.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 20) as i32);
+                let rd = args.rd();
 
                 self.registers.set(rd, self.pc().offset(4));
-                next_pc = self.pc().offset(pc_offset);
+                next_pc = self.pc().offset(args.imm());
             }
             Jalr(args) => {
                 self.instruction_counter += 1;
 
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 11));
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs1 = self.registers.get(rs).as_addr();
                 self.registers.set(rd, self.pc().offset(4));
-                next_pc = rs1.offset(pc_offset);
+                next_pc = rs1.offset(args.imm());
             }
             Beq(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 12));
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
 
                 if rs1 == rs2 {
-                    next_pc = self.pc().offset(pc_offset);
+                    next_pc = self.pc().offset(args.imm());
                 }
             }
             Bne(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 12));
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
 
                 if rs1 != rs2 {
-                    next_pc = self.pc().offset(pc_offset);
+                    next_pc = self.pc().offset(args.imm());
                 }
             }
             Blt(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 12));
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
 
                 if rs1.as_i32() < rs2.as_i32() {
-                    next_pc = self.pc().offset(pc_offset);
+                    next_pc = self.pc().offset(args.imm());
                 }
             }
             Bge(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 12));
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
 
                 if rs1.as_i32() >= rs2.as_i32() {
-                    next_pc = self.pc().offset(pc_offset);
+                    next_pc = self.pc().offset(args.imm());
                 }
             }
             Bltu(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let pc_offset = Offset::from(sign_extend(args.imm(), 12));
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
 
                 if rs1.as_u32() < rs2.as_u32() {
-                    next_pc = self.pc().offset(pc_offset);
+                    next_pc = self.pc().offset(args.imm());
                 }
             }
             Bgeu(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let pc_offset = sign_extend(args.imm(), 12);
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
 
                 if rs1.as_u32() >= rs2.as_u32() {
-                    next_pc = self.pc().offset(pc_offset);
+                    next_pc = self.pc().offset(args.imm());
                 }
             }
             Lb(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs).as_addr();
-                let src = rs.offset(imm);
+                let src = rs.offset(args.imm());
 
                 let mem = self.memory.get_byte(src);
                 let mem = Word::sign_extend_u8(mem);
@@ -344,12 +334,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, mem);
             }
             Lh(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs).as_addr();
-                let src = rs.offset(imm);
+                let src = rs.offset(args.imm());
 
                 let mem = self.memory.get_halfword(src);
                 let mem = Word::sign_extend_u16(mem);
@@ -357,12 +346,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, mem);
             }
             Lw(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs).as_addr();
-                let src = rs.offset(imm);
+                let src = rs.offset(args.imm());
 
                 let mem = self.memory.get(src);
                 let mem = Word::from(mem);
@@ -370,12 +358,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, mem);
             }
             Lbu(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs).as_addr();
-                let src = rs.offset(imm);
+                let src = rs.offset(args.imm());
 
                 let mem = self.memory.get_byte(src);
                 let mem = Word::from(mem);
@@ -383,12 +370,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, mem);
             }
             Lhu(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs).as_addr();
-                let src = rs.offset(imm);
+                let src = rs.offset(args.imm());
 
                 let mem = self.memory.get_halfword(src);
                 let mem = Word::from(mem);
@@ -396,123 +382,113 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, mem);
             }
             Sb(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1).as_addr();
                 let rs2 = self.registers.get(rs2).to_le_bytes()[0];
-                let dest = rs1.offset(imm);
+                let dest = rs1.offset(args.imm());
 
                 self.memory.set_byte(dest, rs2);
             }
             Sh(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1).as_addr();
                 let rs2 = self.registers.get(rs2).to_le_halfwords()[0];
-                let dest = rs1.offset(imm);
+                let dest = rs1.offset(args.imm());
 
                 self.memory.set_halfword(dest, rs2);
             }
             Sw(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1).as_addr();
                 let rs2 = self.registers.get(rs2).as_u32();
-                let dest = rs1.offset(imm);
+                let dest = rs1.offset(args.imm());
 
                 self.memory.set(dest, rs2);
             }
             Addi(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32().wrapping_add(imm));
+                self.registers.set(rd, rs.as_i32().wrapping_add(args.imm()));
             }
             Slti(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, u32::from(rs.as_i32() < imm));
+                self.registers.set(rd, u32::from(rs.as_i32() < args.imm()));
             }
             Sltiu(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = args.imm();
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, u32::from(rs.as_u32() < imm));
+                self.registers.set(rd, u32::from(rs.as_u32() < args.imm()));
             }
             Xori(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32() ^ imm);
+                self.registers.set(rd, rs.as_i32() ^ args.imm());
             }
             Andi(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32() & imm);
+                self.registers.set(rd, rs.as_i32() & args.imm());
             }
             Ori(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32() | imm);
+                self.registers.set(rd, rs.as_i32() | args.imm());
             }
             Slli(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let shamt = args.shamt;
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_u32() << shamt);
+                self.registers.set(rd, rs.as_u32() << args.shamt());
             }
             Srli(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let shamt = args.shamt;
+                let rd = args.rd();
+                let rs = args.rs1();
+                let shamt = args.shamt();
 
                 let rs = self.registers.get(rs);
 
                 self.registers.set(rd, rs.as_u32() >> shamt);
             }
             Srai(args) => {
-                let rd = args.rd.into();
-                let rs = args.rs.into();
-                let shamt = args.shamt;
+                let rd = args.rd();
+                let rs = args.rs1();
+                let shamt = args.shamt();
 
                 let rs = self.registers.get(rs);
 
                 self.registers.set(rd, rs.as_i32() >> shamt);
             }
             Add(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -520,9 +496,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1 + rs2);
             }
             Sub(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -530,9 +506,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1 - rs2);
             }
             Sll(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -540,9 +516,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1 << rs2.as_shift());
             }
             Srl(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -550,9 +526,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1 >> rs2.as_shift());
             }
             Sra(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -561,9 +537,9 @@ impl<M: BackingStore> State<M> {
                     .set(rd, rs1.as_i32() >> rs2.as_shift().as_usize());
             }
             Slt(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -572,9 +548,9 @@ impl<M: BackingStore> State<M> {
                     .set(rd, u32::from(rs1.as_i32() < rs2.as_i32()));
             }
             Sltu(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -583,9 +559,9 @@ impl<M: BackingStore> State<M> {
                     .set(rd, u32::from(rs1.as_u32() < rs2.as_u32()));
             }
             Xor(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -593,9 +569,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1.as_u32() ^ rs2.as_u32());
             }
             And(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -603,9 +579,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1.as_u32() & rs2.as_u32());
             }
             Or(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get(rs2);
@@ -613,13 +589,13 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1.as_u32() | rs2.as_u32());
             }
             FmaddS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let rs3 = args.rs3.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let rs3 = args.rs3();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -636,13 +612,13 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FnmsubS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let rs3 = args.rs3.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let rs3 = args.rs3();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -659,13 +635,13 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FmsubS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let rs3 = args.rs3.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let rs3 = args.rs3();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -682,13 +658,13 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FnmaddS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let rs3 = args.rs3.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let rs3 = args.rs3();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -705,9 +681,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             Fsw(args) => {
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let imm = args.imm();
 
                 let rs1 = self.registers.get(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -717,9 +693,9 @@ impl<M: BackingStore> State<M> {
                 self.memory.set(dest, rs2 as u32);
             }
             Flw(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let imm = sign_extend(args.imm(), 11);
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let imm = args.imm();
 
                 let rs1 = self.registers.get(rs1);
 
@@ -729,12 +705,12 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, value as f32);
             }
             FmulS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -749,12 +725,12 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FdivS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -769,12 +745,12 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FaddS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -789,12 +765,12 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FsubS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -809,9 +785,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FltS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -819,9 +795,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, u32::from(rs1 < rs2));
             }
             FminS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -829,9 +805,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::min(rs1, rs2));
             }
             FsgnjS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -839,9 +815,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, rs1.copysign(rs2));
             }
             FsgnjnS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -849,9 +825,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, rs1.copysign(-rs2));
             }
             FsgnjxS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -861,9 +837,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, rs1.copysign(xor));
             }
             FleS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -871,9 +847,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, u32::from(rs1 <= rs2));
             }
             FmaxS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -881,9 +857,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::max(rs1, rs2));
             }
             FeqS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
-                let rs2 = args.rs2.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
@@ -891,11 +867,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, u32::from(rs1 == rs2));
             }
             FcvtSW(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get(rs1);
                 self.prepare_exception_flags();
@@ -906,11 +882,11 @@ impl<M: BackingStore> State<M> {
 
             },
             FcvtWS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs1 = F32::from_f32(rs1);
@@ -921,11 +897,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, result);
             },
             FsqrtS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs1 = F32::from_f32(rs1);
@@ -937,11 +913,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FcvtSWu(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get(rs1);
                 self.prepare_exception_flags();
@@ -951,11 +927,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
             },
             FcvtWuS(args) => {
-                let rm = args.rm;
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rm = args.rm();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
-                let rm = self.get_rounding_mode(rm);
+                let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
                 let rs1 = F32::from_f32(rs1);
@@ -966,8 +942,8 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, result);
             },
             FclassS(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
                 let rs1 = self.registers.get_freg(rs1);
 
@@ -989,25 +965,25 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, class);
             }
             FmvWX(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
                 let rs1 = self.registers.get(rs1);
 
                 self.registers.set_freg(rd, rs1.as_u32() as f32);
             }
             FmvXW(args) => {
-                let rd = args.rd.into();
-                let rs1 = args.rs1.into();
+                let rd = args.rd();
+                let rs1 = args.rs1();
 
                 let rs1 = self.registers.get_freg(rs1);
 
                 self.registers.set(rd, rs1 as u32);
             }
             Csrrw(args) => {
-                let csr = args.csr.into();
-                let rd = args.rd.into();
-                let rs = args.rs1.into();
+                let csr = args.csr();
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers().get(rs);
 
@@ -1018,9 +994,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Csrrs(args) => {
-                let csr = args.csr.into();
-                let rd = args.rd.into();
-                let rs = args.rs1.into();
+                let csr = args.csr();
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers().get(rs);
 
@@ -1032,9 +1008,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Csrrc(args) => {
-                let csr = args.csr.into();
-                let rd = args.rd.into();
-                let rs = args.rs1.into();
+                let csr = args.csr();
+                let rd = args.rd();
+                let rs = args.rs1();
 
                 let rs = self.registers().get(rs);
 
@@ -1046,9 +1022,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Csrrwi(args) => {
-                let csr = args.csr.into();
-                let rd = args.rd.into();
-                let uimm = args.uimm;
+                let csr = args.csr();
+                let rd = args.rd();
+                let uimm = args.uimm();
 
                 self.registers.csr.write(csr, uimm.into());
 
@@ -1057,9 +1033,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Csrrsi(args) => {
-                let csr = args.csr.into();
-                let rd = args.rd.into();
-                let uimm = args.uimm;
+                let csr = args.csr();
+                let rd = args.rd();
+                let uimm = args.uimm();
 
                 let value = self.registers.csr.read(csr);
                 self.registers.csr.write(csr, value & !u32::from(uimm));
@@ -1069,9 +1045,9 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Csrrci(args) => {
-                let csr = args.csr.into();
-                let rd = args.rd.into();
-                let uimm = args.uimm;
+                let csr = args.csr();
+                let rd = args.rd();
+                let uimm = args.uimm();
 
                 let value = self.registers.csr.read(csr);
                 self.registers.csr.write(csr, value | u32::from(uimm));
@@ -1103,7 +1079,8 @@ impl<M: BackingStore> State<M> {
                 eprintln!("Environment break called!");
                 std::process::exit(0);
             },
-            // Fence(_) => todo!(),
+            Fence(_) => {},
+            FenceI(_) => {},
             // Environment(variant) => {
             //     self.instruction_counter += 1;
             //     match variant {

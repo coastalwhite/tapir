@@ -2,8 +2,9 @@ use std::io::{stdin, stdout, Read, Write};
 
 use crate::execute::Registers;
 use crate::memory::{BackingStore, MappedMemory};
-use crate::register::RegIdent;
 use crate::repr::Size;
+
+use rvhwfuzzer_encoding::XRegIdent;
 
 pub enum SystemCallResult {
     Return(Option<u32>),
@@ -25,8 +26,7 @@ pub trait SystemCallConvention {
     type Args;
 
     fn get_syscall_number(regs: &Registers) -> u32 {
-        // a7
-        regs.get(RegIdent::X17).as_u32()
+        regs.get(XRegIdent::A7).as_u32()
     }
     fn get_args(regs: &Registers) -> Self::Args;
     fn handle<M: BackingStore>(
@@ -36,8 +36,7 @@ pub trait SystemCallConvention {
         memory: &mut M,
     ) -> SystemCallResult;
     fn write_result(regs: &mut Registers, result: u32) {
-        // a0
-        regs.set(RegIdent::X10, result);
+        regs.set(XRegIdent::A0, result);
     }
 }
 
@@ -71,12 +70,12 @@ impl SystemCallConvention for TestingConvention {
 
     fn get_args(regs: &Registers) -> Self::Args {
         [
-            regs.get(RegIdent::X10).as_u32(),
-            regs.get(RegIdent::X11).as_u32(),
-            regs.get(RegIdent::X12).as_u32(),
-            regs.get(RegIdent::X13).as_u32(),
-            regs.get(RegIdent::X14).as_u32(),
-            regs.get(RegIdent::X15).as_u32(),
+            regs.get(XRegIdent::A0).as_u32(),
+            regs.get(XRegIdent::A1).as_u32(),
+            regs.get(XRegIdent::A2).as_u32(),
+            regs.get(XRegIdent::A3).as_u32(),
+            regs.get(XRegIdent::A4).as_u32(),
+            regs.get(XRegIdent::A5).as_u32(),
         ]
     }
     fn handle<M: BackingStore>(
@@ -173,12 +172,12 @@ impl SystemCallConvention for LinuxConvention {
 
     fn get_args(regs: &Registers) -> Self::Args {
         [
-            regs.get(RegIdent::X10).as_u32(),
-            regs.get(RegIdent::X11).as_u32(),
-            regs.get(RegIdent::X12).as_u32(),
-            regs.get(RegIdent::X13).as_u32(),
-            regs.get(RegIdent::X14).as_u32(),
-            regs.get(RegIdent::X15).as_u32(),
+            regs.get(XRegIdent::A0).as_u32(),
+            regs.get(XRegIdent::A1).as_u32(),
+            regs.get(XRegIdent::A2).as_u32(),
+            regs.get(XRegIdent::A3).as_u32(),
+            regs.get(XRegIdent::A4).as_u32(),
+            regs.get(XRegIdent::A5).as_u32(),
         ]
     }
     fn handle<M: BackingStore>(

@@ -1,4 +1,4 @@
-// features: f
+// option: features = f
 #![no_std]
 #![no_main]
 

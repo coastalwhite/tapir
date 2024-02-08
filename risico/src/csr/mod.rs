@@ -1,3 +1,5 @@
+use rvhwfuzzer_encoding::CsrIndex;
+
 pub mod fcsr;
 
 macro_rules! csrs {
@@ -17,8 +19,8 @@ macro_rules! csrs {
                 }
             }
 
-            pub fn read(&self, id: u32) -> u32 {
-                match id {
+            pub fn read(&self, id: CsrIndex) -> u32 {
+                match id.0 {
                     $($id => self.$field.read(),)+
                     $($subfield_id => self.$subfield_origin.$subfield_read(),)+
                     // @TODO
@@ -26,8 +28,8 @@ macro_rules! csrs {
                 }
             }
 
-            pub fn write(&mut self, id: u32, value: u32) {
-                match id {
+            pub fn write(&mut self, id: CsrIndex, value: u32) {
+                match id.0 {
                     $($id => self.$field.write(value),)+
                     $($subfield_id => self.$subfield_origin.$subfield_write(value),)+
                     // @TODO
