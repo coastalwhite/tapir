@@ -1,10 +1,10 @@
 use super::{ArbitraryInstruction, ArbitraryParameterProvider, ArbitraryGenerationContext};
 
 macro_rules! impl_arbitrary_args {
-    ($name:ident { [$ctx:ident] $($arg:ident: $arg_expr:expr),* $(,)? }) => {
+    ($name:ident { [$ctx:ident] $($arg:expr),* $(,)? }) => {
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>($ctx: &mut ArbitraryGenerationContext<P>) -> Self {
-                Self { $( $arg: $arg_expr, )+ }
+            fn take<P: ArbitraryParameterProvider>($ctx: &mut ArbitraryGenerationContext<P>) -> ::rvhwfuzzer_encoding::Instruction {
+                Self::new($( $arg, )+).into()
             }
         }
     }
@@ -15,11 +15,11 @@ macro_rules! impl_fpu32_r4_args {
         $( impl_arbitrary_args! {
             $name {
                 [ctx]
-                rs1: ctx.params_mut().take_fpu_register_src().0,
-                rs2: ctx.params_mut().take_fpu_register_src().0,
-                rs3: ctx.params_mut().take_fpu_register_src().0,
-                rm: ctx.params_mut().take_static_rounding_mode() as u8,
-                rd: ctx.params_mut().take_fpu_register_dest().0,
+                ctx.params_mut().take_fpu_register_dest(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_static_rounding_mode(),
             }
         } )+
     };
@@ -30,10 +30,10 @@ macro_rules! impl_fpu32_r_rm_args {
         $( impl_arbitrary_args! {
             $name {
                 [ctx]
-                rs1: ctx.params_mut().take_fpu_register_src().0,
-                rs2: ctx.params_mut().take_fpu_register_src().0,
-                rm: ctx.params_mut().take_static_rounding_mode() as u8,
-                rd: ctx.params_mut().take_fpu_register_dest().0,
+                ctx.params_mut().take_fpu_register_dest(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_static_rounding_mode(),
             }
         } )+
     };
@@ -44,9 +44,9 @@ macro_rules! impl_fpu32_r_no_rm_args {
         $( impl_arbitrary_args! {
             $name {
                 [ctx]
-                rs1: ctx.params_mut().take_fpu_register_src().0,
-                rs2: ctx.params_mut().take_fpu_register_src().0,
-                rd: ctx.params_mut().take_fpu_register_dest().0,
+                ctx.params_mut().take_fpu_register_dest(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_fpu_register_src(),
             }
         } )+
     };
@@ -57,107 +57,107 @@ macro_rules! impl_fpu32_cmp_args {
         $( impl_arbitrary_args! {
             $name {
                 [ctx]
-                rs1: ctx.params_mut().take_fpu_register_src().0,
-                rs2: ctx.params_mut().take_fpu_register_src().0,
-                rd: ctx.params_mut().take_register_dest().0,
+                ctx.params_mut().take_register_dest(),
+                ctx.params_mut().take_fpu_register_src(),
+                ctx.params_mut().take_fpu_register_src(),
             }
         } )+
     };
 }
 
 impl_fpu32_r4_args! {
-    FmaddSArgs,
-    FmsubSArgs,
-    FnmaddSArgs,
-    FnmsubSArgs,
+    FmaddS,
+    FmsubS,
+    FnmaddS,
+    FnmsubS,
 }
 
 impl_fpu32_r_rm_args! {
-    FaddSArgs,
-    FsubSArgs,
-    FmulSArgs,
-    FdivSArgs,
+    FaddS,
+    FsubS,
+    FmulS,
+    FdivS,
 }
 
 impl_fpu32_r_no_rm_args! {
-    FminSArgs,
-    FmaxSArgs,
-    FsgnjSArgs,
-    FsgnjnSArgs,
-    FsgnjxSArgs,
+    FminS,
+    FmaxS,
+    FsgnjS,
+    FsgnjnS,
+    FsgnjxS,
 }
 
 impl_fpu32_cmp_args! {
-    FeqSArgs,
-    FltSArgs,
-    FleSArgs,
+    FeqS,
+    FltS,
+    FleS,
 }
 
 impl_arbitrary_args! {
-    FsqrtSArgs {
+    FsqrtS {
         [ctx]
-        rs1: ctx.params_mut().take_fpu_register_src().0,
-        rm: ctx.params_mut().take_static_rounding_mode() as u8,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_fpu_register_dest(),
+        ctx.params_mut().take_fpu_register_src(),
+        ctx.params_mut().take_static_rounding_mode(),
     }
 }
 
 impl_arbitrary_args! {
-    FclassSArgs {
+    FclassS {
         [ctx]
-        rs1: ctx.params_mut().take_fpu_register_src().0,
-        rd: ctx.params_mut().take_register_dest().0,
+        ctx.params_mut().take_register_dest(),
+        ctx.params_mut().take_fpu_register_src(),
     }
 }
 
 impl_arbitrary_args! {
-    FmvWXArgs {
+    FmvWX {
         [ctx]
-        rs1: ctx.params_mut().take_register_src().0,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_fpu_register_dest(),
+        ctx.params_mut().take_register_src(),
     }
 }
 
 impl_arbitrary_args! {
-    FmvXWArgs {
+    FmvXW {
         [ctx]
-        rs1: ctx.params_mut().take_register_src().0,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_register_dest(),
+        ctx.params_mut().take_fpu_register_src(),
     }
 }
 
 impl_arbitrary_args! {
-    FcvtWSArgs {
+    FcvtWS {
         [ctx]
-        rs1: ctx.params_mut().take_register_src().0,
-        rm: ctx.params_mut().take_static_rounding_mode() as u8,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_register_dest(),
+        ctx.params_mut().take_fpu_register_src(),
+        ctx.params_mut().take_static_rounding_mode(),
     }
 }
 
 impl_arbitrary_args! {
-    FcvtWuSArgs {
+    FcvtWuS {
         [ctx]
-        rs1: ctx.params_mut().take_register_src().0,
-        rm: ctx.params_mut().take_static_rounding_mode() as u8,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_register_dest(),
+        ctx.params_mut().take_fpu_register_src(),
+        ctx.params_mut().take_static_rounding_mode(),
     }
 }
 
 impl_arbitrary_args! {
-    FcvtSWArgs {
+    FcvtSW {
         [ctx]
-        rs1: ctx.params_mut().take_register_src().0,
-        rm: ctx.params_mut().take_static_rounding_mode() as u8,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_fpu_register_dest(),
+        ctx.params_mut().take_register_src(),
+        ctx.params_mut().take_static_rounding_mode(),
     }
 }
 
 impl_arbitrary_args! {
-    FcvtSWuArgs {
+    FcvtSWu {
         [ctx]
-        rs1: ctx.params_mut().take_register_src().0,
-        rm: ctx.params_mut().take_static_rounding_mode() as u8,
-        rd: ctx.params_mut().take_fpu_register_dest().0,
+        ctx.params_mut().take_fpu_register_dest(),
+        ctx.params_mut().take_register_src(),
+        ctx.params_mut().take_static_rounding_mode(),
     }
 }

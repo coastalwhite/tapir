@@ -7,7 +7,7 @@ use std::io;
 
 use risico::memory::PlacedBytes;
 use risico::repr::Addr;
-use risico::RegIdent;
+use rvhwfuzzer_encoding::{FRegIdent, Instruction, RoundingMode, XRegIdent};
 
 use crate::arbitrary::ArbitraryGenerationContext;
 
@@ -17,66 +17,6 @@ use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
 use self::classes::fpu32::FPU32Instruction;
 use self::classes::nonhopping_branches::NonHoppingBranch;
 use self::randombits::RandomBits;
-
-#[derive(Debug)]
-struct HoppingEqualityBranch {
-    rs1: RegisterId,
-    rs2: RegisterId,
-    is_equal: bool,
-}
-
-impl ArbitraryInstruction for HoppingEqualityBranch {
-    fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Self {
-        let rs1 = ctx.params_mut().take_register_src();
-        let rs2 = ctx.params_mut().take_register_src();
-
-        let rs1_value = ctx.state().registers().get(RegIdent::from(rs1.0));
-        let rs2_value = ctx.state().registers().get(RegIdent::from(rs2.0));
-
-        let is_equal = rs1_value == rs2_value;
-
-        Self { rs1, rs2, is_equal }
-    }
-}
-
-impl HoppingEqualityBranch {
-    pub fn encode(&self, imm12_1: u16, writer: &mut impl io::Write) -> io::Result<()> {
-        let imm4_1 = imm12_1 & 0xF;
-        let imm10_5 = (imm12_1 >> 4) & 0x3F;
-        let imm11 = (imm12_1 >> 10) & 1;
-        let imm12 = (imm12_1 >> 11) & 1;
-
-        let imm4_1 = imm4_1 as u8;
-        let imm10_5 = imm10_5 as u8;
-        let imm11 = imm11 as u8;
-        let imm12 = imm12 as u8;
-
-        let rs1 = self.rs1.0;
-        let rs2 = self.rs2.0;
-
-        if self.is_equal {
-            rvhwfuzzer_encoding::BeqArgs {
-                imm10_5,
-                imm4_1,
-                imm11,
-                rs1,
-                imm12,
-                rs2,
-            }
-            .encode(writer)
-        } else {
-            rvhwfuzzer_encoding::BneArgs {
-                imm10_5,
-                imm4_1,
-                imm11,
-                rs1,
-                imm12,
-                rs2,
-            }
-            .encode(writer)
-        }
-    }
-}
 
 const NUM_REGISTERS: usize = 32;
 const FPU_NUM_REGISTERS: usize = 32;
@@ -95,46 +35,46 @@ const PROGRAM_SIZE_UPPERBOUND: usize = 32 * MAX_INSTRUCTIONS_BYTESIZE * 2
     + MAX_INSTRUCTIONS_BYTESIZE * MAX_INSTRUCTIONS_PER_BB * MAX_INSTRUCTIONS_PER_BB;
 
 impl ArbitraryParameterProvider for RegisterRecencyList {
-    fn take_register_src(&mut self) -> RegisterId {
+    fn take_register_src(&mut self) -> XRegIdent {
         self.take_source()
     }
 
-    fn take_register_dest(&mut self) -> RegisterId {
+    fn take_register_dest(&mut self) -> XRegIdent {
         self.take_destination()
     }
 
-    fn take_fpu_register_src(&mut self) -> FPURegisterId {
+    fn take_fpu_register_src(&mut self) -> FRegIdent {
         self.take_fpu_source()
     }
 
-    fn take_fpu_register_dest(&mut self) -> FPURegisterId {
+    fn take_fpu_register_dest(&mut self) -> FRegIdent {
         self.take_fpu_destination()
     }
 
-    fn take_static_rounding_mode(&mut self) -> arbitrary::RoundingMode {
+    fn take_static_rounding_mode(&mut self) -> RoundingMode {
         let rm = self.entropy.take(3);
 
-        use arbitrary::RoundingMode as R;
+        use RoundingMode as R;
         match rm {
             0b001 => R::ToZero,
             0b010 => R::Down,
             0b011 => R::Up,
-            0b100 => R::ToMaxMagnitude,
+            0b100 => R::TiesToMaxMagnitude,
 
             // @NOTE: This is biased towards the TiesToEven operation
             _ => R::TiesToEven,
         }
     }
 
-    fn take_rounding_mode(&mut self) -> arbitrary::RoundingMode {
+    fn take_rounding_mode(&mut self) -> RoundingMode {
         let rm = self.entropy.take(3);
 
-        use arbitrary::RoundingMode as R;
+        use RoundingMode as R;
         match rm {
             0b001 => R::ToZero,
             0b010 => R::Down,
             0b011 => R::Up,
-            0b100 => R::ToMaxMagnitude,
+            0b100 => R::TiesToMaxMagnitude,
             0b111 => R::Dynamic,
 
             // @NOTE: This is biased towards the TiesToEven operation
@@ -214,12 +154,6 @@ enum ExceptionCauseValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BasicBlockId(usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RegisterId(u8);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FPURegisterId(u8);
-
 struct BasicBlock {
     classes: Box<[StillClass]>,
     hop: HopClass,
@@ -231,8 +165,8 @@ pub struct ControlFlowGraph {
 
 struct RegisterRecencyList {
     entropy: RandomBits,
-    inner: [RegisterId; NUM_REGISTERS - 1],
-    fpu: [FPURegisterId; FPU_NUM_REGISTERS],
+    inner: [XRegIdent; NUM_REGISTERS - 1],
+    fpu: [FRegIdent; FPU_NUM_REGISTERS],
 }
 
 impl RegisterRecencyList {
@@ -240,12 +174,12 @@ impl RegisterRecencyList {
         // @Hack. This should probably be more random.
         Self {
             entropy: RandomBits::new(),
-            inner: std::array::from_fn(|i| RegisterId(i as u8)),
-            fpu: std::array::from_fn(|i| FPURegisterId(i as u8)),
+            inner: std::array::from_fn(|i| XRegIdent::take_masked((i + 1) as u32)),
+            fpu: std::array::from_fn(|i| FRegIdent::take_masked(i as u32)),
         }
     }
 
-    pub fn take_source(&mut self) -> RegisterId {
+    pub fn take_source(&mut self) -> XRegIdent {
         // This works as follows.
         // We take a weighted random register from `register_recency`.
         //
@@ -264,7 +198,7 @@ impl RegisterRecencyList {
 
         match weight {
             0..=127 => self.inner[u8::min(offset & 0x3, 2) as usize],
-            128..=191 => RegisterId(0),
+            128..=191 => XRegIdent::Zero,
             192..=223 => self.inner[4 + (offset & 0x3) as usize],
             224..=239 => self.inner[8 + (offset & 0x3) as usize],
             240..=247 => self.inner[12 + (offset & 0x3) as usize],
@@ -274,7 +208,7 @@ impl RegisterRecencyList {
         }
     }
 
-    pub fn take_fpu_source(&mut self) -> FPURegisterId {
+    pub fn take_fpu_source(&mut self) -> FRegIdent {
         // This works as follows.
         // We take a weighted random register from `register_recency`.
         //
@@ -301,12 +235,12 @@ impl RegisterRecencyList {
         }
     }
 
-    pub fn take_destination(&mut self) -> RegisterId {
+    pub fn take_destination(&mut self) -> XRegIdent {
         // @Hack. This should not be hard coded
-        let value = self.entropy.take_u8(5);
-        let register = RegisterId(value);
+        let value = self.entropy.take_u32(5);
+        let register = XRegIdent::take_masked(value);
 
-        if register == RegisterId(0) {
+        if register == XRegIdent::Zero {
             return register;
         }
 
@@ -322,10 +256,10 @@ impl RegisterRecencyList {
         register
     }
 
-    pub fn take_fpu_destination(&mut self) -> FPURegisterId {
+    pub fn take_fpu_destination(&mut self) -> FRegIdent {
         // @Hack. This should not be hard coded
-        let value = self.entropy.take_u8(5);
-        let register = FPURegisterId(value);
+        let value = self.entropy.take_u32(5);
+        let register = FRegIdent::take_masked(value);
 
         let mut prev = register;
         for recent_register in self.fpu.iter_mut() {
@@ -393,59 +327,37 @@ impl ControlFlowGraph {
 }
 
 impl StillClass {
-    fn instantiate<W, P>(
-        self,
-        writer: &mut W,
-        ctx: &mut ArbitraryGenerationContext<P>,
-    ) -> io::Result<()>
+    fn instantiate<P>(self, ctx: &mut ArbitraryGenerationContext<P>) -> Instruction
     where
-        W: io::Write,
         P: ArbitraryParameterProvider,
     {
         match self {
-            StillClass::Alu => {
-                let alu_instruction = AluInstruction::take(ctx);
-                alu_instruction.encode(writer)
-            }
-            StillClass::FPU32 => {
-                let fpu32_instruction = FPU32Instruction::take(ctx);
-                fpu32_instruction.encode(writer)
-            }
-            StillClass::Branch => {
-                let non_hopping_branch = NonHoppingBranch::take(ctx);
-                non_hopping_branch.encode(writer)
-            }
-            StillClass::ReadCsr => {
-                let readcsr = CsrRead::take(ctx);
-                readcsr.encode(writer)
-            }
-            StillClass::WriteCsr => {
-                let writecsr = CsrWrite::take(ctx);
-                writecsr.encode(writer)
-            }
-            StillClass::WriteCsrImmediate => {
-                let writecsr = CsrImmWrite::take(ctx);
-                writecsr.encode(writer)
-            }
+            StillClass::Alu => AluInstruction::take(ctx),
+            StillClass::FPU32 => FPU32Instruction::take(ctx),
+            StillClass::Branch => NonHoppingBranch::take(ctx),
+            StillClass::ReadCsr => CsrRead::take(ctx),
+            StillClass::WriteCsr => CsrWrite::take(ctx),
+            StillClass::WriteCsrImmediate => CsrImmWrite::take(ctx),
         }
     }
 }
 
-fn catch_up(entry: u32, state: &mut risico::State<PlacedBytes>, binary: &mut Vec<u8>) {
-    let start = state.pc();
-    let end = Addr::from(entry + binary.len() as u32);
+fn add_instruction<P>(ctx: &mut ArbitraryGenerationContext<P>, instruction: Instruction) -> io::Result<()>
+where
+    P: ArbitraryParameterProvider
+{
+    debug_assert_eq!(ctx.state().pc(), ctx.state().memory().end());
 
-    std::mem::swap(state.memory_mut().bytes_mut(), binary);
-    state.run_while(|state| state.pc() >= start && state.pc() < end);
-    std::mem::swap(state.memory_mut().bytes_mut(), binary);
+    // eprintln!("{instruction}");
 
-    assert_eq!(state.pc(), end);
+    instruction.encode(ctx.state_mut().memory_mut().bytes_mut())?;
+    ctx.state_mut().instruction_execute(instruction);
+
+    Ok(())
 }
 
 pub fn generate_binary(cfg: ControlFlowGraph, entry: u32) -> io::Result<Box<[u8]>> {
     let recency_list = RegisterRecencyList::new();
-
-    let mut binary = Vec::<u8>::new();
 
     let state = risico::State::new(
         risico::device_config::Isa::Rv32I,
@@ -461,57 +373,54 @@ pub fn generate_binary(cfg: ControlFlowGraph, entry: u32) -> io::Result<Box<[u8]
 
     for i in 1..NUM_REGISTERS {
         let value = rand::random::<u32>();
-        rvhwfuzzer_encoding::LuiArgs {
-            rd: i as u8,
-            imm31_12: value >> 12,
-        }
-        .encode(&mut binary)?;
-        rvhwfuzzer_encoding::AddiArgs {
-            rd: i as u8,
-            rs: i as u8,
-            imm11_0: (value & 0xFFF) as u16,
-        }
-        .encode(&mut binary)?;
-    }
+        let r = XRegIdent::take_masked(i as u32);
 
-    catch_up(entry, &mut ctx.state_mut(), &mut binary);
+        let lui = rvhwfuzzer_encoding::Lui::new(r, value);
+        let addi = rvhwfuzzer_encoding::Addi::new(r, r, (((value & 0xFFF) << 4) as i16) >> 4);
+
+        add_instruction(&mut ctx, lui.into())?;
+        add_instruction(&mut ctx, addi.into())?;
+    }
 
     for bb in cfg.inner.iter() {
         for class in bb.classes.iter() {
-            catch_up(entry, &mut ctx.state_mut(), &mut binary);
-            class.instantiate(&mut binary, &mut ctx)?;
+            let instruction = class.instantiate(&mut ctx);
+            add_instruction(&mut ctx, instruction)?;
         }
-
-        catch_up(entry, &mut ctx.state_mut(), &mut binary);
 
         let padding = rand::random::<usize>() % (MAX_PADDING - MIN_PADDING) + MIN_PADDING;
         let padding = padding & !0x3;
-        let jump_addr = (padding + 4) >> 1;
+        let offset = (padding + 4) as i16;
 
         match bb.hop {
             HopClass::Jump => {
-                rvhwfuzzer_encoding::JalArgs {
-                    imm19_12: 0,
-                    imm11: 0,
-                    rd: 0,
-                    imm10_1: jump_addr as u16,
-                    imm20: 0,
-                }
-                .encode(&mut binary)?;
+                let instruction = rvhwfuzzer_encoding::Jal::new(XRegIdent::Zero, offset as _);
+                add_instruction(&mut ctx, instruction.into())?;
             }
             HopClass::Branch => {
-                let hopping_eq_branch = HoppingEqualityBranch::take(&mut ctx);
-                hopping_eq_branch.encode(jump_addr as u16, &mut binary)?;
+                let rs1 = ctx.params_mut().take_register_src();
+                let rs2 = ctx.params_mut().take_register_src();
+
+                let rs1_value = ctx.state().registers().get(rs1);
+                let rs2_value = ctx.state().registers().get(rs2);
+
+                let instruction = if rs1_value == rs2_value {
+                    rvhwfuzzer_encoding::Beq::new(rs1, rs2, offset).into()
+                } else {
+                    rvhwfuzzer_encoding::Bne::new(rs1, rs2, offset).into()
+                };
+
+                add_instruction(&mut ctx, instruction)?;
             }
             HopClass::FPU32 => {
                 unimplemented!()
             }
         }
 
-        binary.extend(std::iter::repeat(0).take(padding));
-
-        catch_up(entry, &mut ctx.state_mut(), &mut binary);
+        ctx.state_mut().memory_mut().bytes_mut().extend(std::iter::repeat(0).take(padding));
     }
+
+    let binary = std::mem::take(ctx.state_mut().memory_mut().bytes_mut());
 
     Ok(binary.into_boxed_slice())
 }

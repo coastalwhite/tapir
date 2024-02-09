@@ -4,9 +4,18 @@ use std::io;
 mod fence_order;
 mod register;
 
-#[derive(Clone, Copy)]
+struct UpperHex(u32);
+
+impl std::fmt::Debug for UpperHex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("0x")?;
+        <u32 as std::fmt::UpperHex>::fmt(&self.0, f)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CsrIndex(pub u16);
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct FenceMode(pub u8);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -253,167 +262,129 @@ macro_rules! format_num_bytes {
     (j) => { 4 };
 }
 
-macro_rules! method {
-    (freg_rd) => {
-        #[inline(always)]
-        pub fn rd(self) -> FRegIdent {
-            FRegIdent::take_masked(self.0 >> 7)
-        }
-    };
-    (freg_rs1) => {
-        #[inline(always)]
-        pub fn rs1(self) -> FRegIdent {
-            FRegIdent::take_masked(self.0 >> 15)
-        }
-    };
-    (freg_rs2) => {
-        #[inline(always)]
-        pub fn rs2(self) -> FRegIdent {
-            FRegIdent::take_masked(self.0 >> 20)
-        }
-    };
-    (freg_rs3) => {
-        #[inline(always)]
-        pub fn rs3(self) -> FRegIdent {
-            FRegIdent::take_masked(self.0 >> 27)
-        }
-    };
-    (rm) => {
-        #[inline(always)]
-        pub fn rm(self) -> RoundingMode {
-            RoundingMode::take_masked(self.0 >> 12)
-        }
-    };
-    (xreg_rd) => {
-        #[inline(always)]
-        pub fn rd(self) -> XRegIdent {
-            XRegIdent::take_masked(self.0 >> 7)
-        }
-    };
-    (xreg_rs1) => {
-        #[inline(always)]
-        pub fn rs1(self) -> XRegIdent {
-            XRegIdent::take_masked(self.0 >> 15)
-        }
-    };
-    (xreg_rs2) => {
-        #[inline(always)]
-        pub fn rs2(self) -> XRegIdent {
-            XRegIdent::take_masked(self.0 >> 20)
-        }
-    };
-    (shamt) => {
-        #[inline(always)]
-        pub fn shamt(self) -> u8 {
-            ((self.0 >> 20) & 0b11111) as u8
-        }
-    };
-    (csr) => {
-        #[inline]
-        pub fn csr(self) -> CsrIndex {
-            CsrIndex(((self.0 >> 20) & 0xFFF) as u16)
-        }
-    };
-    (csr_uimm) => {
-        #[inline]
-        pub fn uimm(self) -> u8 {
-            ((self.0 >> 15) & 0b11111) as u8
-        }
-    };
-    (itype_imm_unsigned) => {
-        #[inline]
-        pub fn imm(self) -> u32 {
-            (self.0 >> 20) & 0xFFF
-        }
-    };
-    (itype_imm_signed) => {
-        #[inline]
-        pub fn imm(self) -> i32 {
+#[rustfmt::skip]
+macro_rules! field_type {
+    (rd: freg) => { FRegIdent };
+    (rs1: freg) => { FRegIdent };
+    (rs2: freg) => { FRegIdent };
+    (rs3: freg) => { FRegIdent };
+    (rm) => { RoundingMode };
+    (rd:  xreg) => { XRegIdent };
+    (rs1: xreg) => { XRegIdent };
+    (rs2: xreg) => { XRegIdent };
+    (shamt) => { u8 };
+    (csr) => { CsrIndex };
+    (uimm: csr) => { u8 };
+    (imm: itype_unsigned) => { u16 };
+    (imm: itype_signed) => { i16 };
+    (imm: stype) => { i16 };
+    (imm: btype) => { i16 };
+    (imm: jtype) => { i32 };
+    (imm: utype) => { u32 };
+    (fm) => { FenceMode };
+    (pred) => { FenceOrder };
+    (succ) => { FenceOrder };
+}
+
+#[rustfmt::skip]
+macro_rules! field_encode {
+    ($v:ident, rd: freg) =>            { ($v as u32) << 7 };
+    ($v:ident, rs1: freg) =>           { ($v as u32) << 15 };
+    ($v:ident, rs2: freg) =>           { ($v as u32) << 20 };
+    ($v:ident, rs3: freg) =>           { ($v as u32) << 27 };
+    ($v:ident, rm) =>                  { ($v as u32) << 12 };
+    ($v:ident, rd: xreg) =>            { ($v as u32) << 7 };
+    ($v:ident, rs1: xreg) =>           { ($v as u32) << 15 };
+    ($v:ident, rs2: xreg) =>           { ($v as u32) << 20 };
+    ($v:ident, shamt) =>               { ($v as u32) << 20 };
+    ($v:ident, csr) =>                 { ($v.0 as u32) << 20 };
+    ($v:ident, uimm: csr) =>           { ($v as u32) << 15 };
+    ($v:ident, imm: itype_unsigned) => { ($v as u32) << 20 };
+    ($v:ident, imm: itype_signed) =>   { (($v as u32) & 0xFFF) << 20 };
+    ($v:ident, imm: stype) =>          {{
+        let imm4_0  = ($v as u32) & 0x01F;
+        let imm11_5 = ($v as u32) & 0xFE0;
+
+        (imm4_0 << 7) | (imm11_5 << (25 - 5))
+    }};
+    ($v:ident, imm: btype) => {{
+        let imm4_1  = ($v as u32) & 0x001E;
+        let imm10_5 = ($v as u32) & 0x07E0;
+        let imm11   = ($v as u32) & 0x0800;
+        let imm12   = ($v as u32) & 0x1000;
+
+        (imm4_1  << ( 8 -  1)) | 
+        (imm10_5 << (25 -  5)) |
+        (imm11   >> (11 -  7)) | // @NOTE: Intentional right shift
+        (imm12   << (31 - 12))
+    }};
+    ($v:ident, imm: jtype) => {{
+        let imm10_1  = ($v as u32) & 0x0000_07FE;
+        let imm11    = ($v as u32) & 0x0000_0800;
+        let imm19_12 = ($v as u32) & 0x000F_F000;
+        let imm20    = ($v as u32) & 0x0010_0000;
+
+        (imm10_1  << (21 -  1)) | 
+        (imm11    << (20 - 11)) |
+        (imm19_12 << (12 - 12)) |
+        (imm20    << (31 - 20))
+    }};
+    ($v:ident, imm: utype) => { $v & 0xFFFF_F000 };
+    ($v:ident, fm) => { ($v.0 as u32) << 28 };
+    ($v:ident, pred) => { ($v.encode() as u32) << 24 };
+    ($v:ident, succ) => { ($v.encode() as u32) << 20 };
+}
+
+#[rustfmt::skip]
+macro_rules! field_decode {
+    ($bs:expr, rd: freg)            => { FRegIdent::take_masked($bs >> 7) };
+    ($bs:expr, rs1: freg)           => { FRegIdent::take_masked($bs >> 15) };
+    ($bs:expr, rs2: freg)           => { FRegIdent::take_masked($bs >> 20) };
+    ($bs:expr, rs3: freg)           => { FRegIdent::take_masked($bs >> 27) };
+    ($bs:expr, rm)                  => { RoundingMode::take_masked($bs >> 12) };
+    ($bs:expr, rd: xreg)            => { XRegIdent::take_masked($bs >> 7) };
+    ($bs:expr, rs1: xreg)           => { XRegIdent::take_masked($bs >> 15) };
+    ($bs:expr, rs2: xreg)           => { XRegIdent::take_masked($bs >> 20) };
+    ($bs:expr, shamt)               => { (($bs >> 20) & 0x1F) as u8 };
+    ($bs:expr, csr)                 => { CsrIndex(($bs >> 20) as u16) };
+    ($bs:expr, uimm: csr)           => { (($bs >> 15) & 0x1F) as u8 };
+    ($bs:expr, imm: itype_unsigned) => { ($bs >> 20) as u16 };
+    ($bs:expr, imm: itype_signed)   => { ((($bs & 0xFFF0_0000) as i32) >> 20) as i16 };
+    ($bs:expr, imm: stype)          => { ((($bs & 0xFE00_0000) as i32) >> 20) as i16 | (($bs >> 7) & 0x1F) as i16 };
+    ($bs:expr, imm: btype)          => {{
             // Not straight forward because we need to sign extend
 
-            let imm = self.0 & 0xFFF0_0000;
-            let imm = imm as i32;
-            let imm = imm >> 20;
-
-            imm
-        }
-    };
-    (stype_imm) => {
-        #[inline]
-        pub fn imm(self) -> i32 {
-            // Not straight forward because we need to sign extend
-
-            let imm = self.0 & 0xFE00_0000;
-            let imm = imm as i32;
-            let imm = imm >> 20;
-
-            let imm4_0 = (imm >> 7) & 0x1F;
-
-            let imm = imm | imm4_0 as i32;
-
-            imm
-        }
-    };
-    (btype_imm) => {
-        #[inline]
-        pub fn imm(self) -> i32 {
-            // Not straight forward because we need to sign extend
-
-            let imm = self.0 as i32;
-            let imm = imm >> 19;
+            let imm = $bs as i32;
+            let imm = imm >> (31 - 12);
             let imm = imm & !0xFFF;
 
-            let imm11 = (self.0 >> 7) & 1;
-            let imm10_5 = (self.0 >> 25) & 0x3F;
-            let imm4_1 = (self.0 >> 8) & 0xF;
+            let imm11   = ($bs >>  7) & 0x01;
+            let imm10_5 = ($bs >> 25) & 0x3F;
+            let imm4_1  = ($bs >>  8) & 0x0F;
 
             let imm = imm | (imm11 << 11) as i32 | (imm10_5 << 5) as i32 | (imm4_1 << 1) as i32;
 
-            imm
-        }
-    };
-    (jtype_imm) => {
-        #[inline]
-        pub fn imm(self) -> i32 {
-            // Not straight forward because we need to sign extend
+            imm as i16
+    }};
+    ($bs:expr, imm: jtype) => {{
+        // Not straight forward because we need to sign extend
 
-            let imm = self.0 as i32;
-            let imm = imm >> 11;
-            let imm = imm & !0xF_FFFF;
+        let imm = $bs as i32;
+        let imm = imm >> (31 - 20);
+        let imm = imm & !0xF_FFFF;
 
-            let imm19_12 = self.0 & 0xF_F000;
-            let imm11 = (self.0 >> 20) & 1;
-            let imm10_1 = (self.0 >> 21) & 0x3FF;
+        let imm19_12 =  $bs & 0xF_F000;
+        let imm11    = ($bs >> 20) & 1;
+        let imm10_1  = ($bs >> 21) & 0x3FF;
 
-            let imm = imm | imm19_12 as i32 | (imm11 << 11) as i32 | (imm10_1 << 1) as i32;
+        let imm = imm | imm19_12 as i32 | (imm11 << 11) as i32 | (imm10_1 << 1) as i32;
 
-            imm
-        }
-    };
-    (utype_imm) => {
-        #[inline(always)]
-        pub fn imm(self) -> u32 {
-            self.0 & 0xFFFF_F000
-        }
-    };
-    (fm) => {
-        #[inline(always)]
-        pub fn fm(self) -> FenceMode {
-            FenceMode((self.0 >> 28) as u8)
-        }
-    };
-    (pred) => {
-        #[inline(always)]
-        pub fn pred(self) -> FenceOrder {
-            FenceOrder::take_masked(self.0 >> 24)
-        }
-    };
-    (succ) => {
-        #[inline(always)]
-        pub fn succ(self) -> FenceOrder {
-            FenceOrder::take_masked(self.0 >> 20)
-        }
-    };
+        imm
+    }};
+    ($bs:expr, imm: utype) => { $bs & 0xFFFF_F000 };
+    ($bs:expr, fm) => { FenceMode((($bs >> 28) & 0xF) as u8) };
+    ($bs:expr, pred) => { FenceOrder::take_masked($bs >> 24) };
+    ($bs:expr, succ) => { FenceOrder::take_masked($bs >> 20) };
 }
 
 macro_rules! instructions {
@@ -426,7 +397,7 @@ macro_rules! instructions {
                 $format:ident $(, $field:ident = $value:literal)* $(,)?
             )
             (
-                $($method:ident),* $(,)?
+                $($method_ident:ident$(: $method_extra:ident)?),* $(,)?
             )
         ),+
         $(,)?
@@ -458,16 +429,49 @@ macro_rules! instructions {
         #[derive(Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name(u32);
 
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!($name))
+                    $(
+                    .field(stringify!($method_ident), &self.$method_ident())
+                    )*
+                    .field("encoding", &UpperHex(self.0))
+                    .finish()
+            }
+        }
+
+        impl From<$name> for Instruction {
+            #[inline(always)]
+            fn from(i: $name) -> Self {
+                Self::$name(i)
+            }
+        }
+
         impl $name {
             pub const NUM_BYTES: usize = format_num_bytes!($format);
             pub const MNEMONIC: &'static str = $mnemonic;
 
+            const ENABLE: u32 = format_enable!($format$(, $field = $value)*) | $opcode;
+            const MASK: u32 = format_mask!($format$(, $field = $value)*) | $opcode;
+
+            #[inline]
+            pub fn new($($method_ident: field_type!($method_ident$(: $method_extra)?)),*) -> Self {
+                let mut bits = 0;
+
+                $(
+                bits |= field_encode!($method_ident, $method_ident$(: $method_extra)?);
+                )*
+
+                debug_assert!(bits & Self::ENABLE == 0);
+
+                bits |= Self::MASK;
+
+                Self(bits)
+            }
+
             #[inline(always)]
             pub fn matches(bits: u32) -> bool {
-                const ENABLE: u32 = format_enable!($format$(, $field = $value)*) | $opcode;
-                const MASK: u32 = format_mask!($format$(, $field = $value)*) | $opcode;
-
-                bits & ENABLE == MASK
+                bits & Self::ENABLE == Self::MASK
             }
 
             #[inline]
@@ -492,7 +496,10 @@ macro_rules! instructions {
             }
 
             $(
-            method!($method);
+            #[inline(always)]
+            pub fn $method_ident(self) -> field_type!($method_ident$(: $method_extra)?) {
+                field_decode!(self.0, $method_ident$(: $method_extra)?)
+            }
             )*
         }
         )+
@@ -541,14 +548,12 @@ macro_rules! instructions {
                 }
             }
 
+            #[inline]
             pub fn encode(self, writer: &mut impl io::Write) -> io::Result<()> {
                 let bits = self.encode_as_u32();
 
-                let num_bytes = if bits & 0b11 == 0b11 {
-                    4
-                } else {
-                    2
-                };
+                // Use 2 bytes for compressed instructions
+                let num_bytes = 2 << usize::from(bits & 0b11 == 0b11);
 
                 writer.write_all(&bits.to_le_bytes()[..num_bytes])
             }
@@ -882,49 +887,49 @@ fn opcode_11111(_bits: u32) -> Option<InstructionVariant> {
 }
 
 instructions! {
-    Lui   ("lui",   0b011_0111, u                                     ) (xreg_rd, utype_imm),
-    Auipc ("auipc", 0b001_0111, u                                     ) (xreg_rd, utype_imm),
+    Lui   ("lui",   0b011_0111, u                                     ) (rd: xreg, imm: utype),
+    Auipc ("auipc", 0b001_0111, u                                     ) (rd: xreg, imm: utype),
 
-    Jal   ("jal",   0b110_1111, j                                     ) (xreg_rd, jtype_imm),
-    Jalr  ("jalr",  0b110_0111, i, funct3 = 0b000                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Jal   ("jal",   0b110_1111, j                                     ) (rd: xreg, imm: jtype),
+    Jalr  ("jalr",  0b110_0111, i, funct3 = 0b000                     ) (rd: xreg, rs1: xreg, imm: itype_signed),
 
-    Beq   ("beq",   0b110_0011, b, funct3 = 0b000                     ) (xreg_rs1, xreg_rs2, btype_imm),
-    Bne   ("bne",   0b110_0011, b, funct3 = 0b001                     ) (xreg_rs1, xreg_rs2, btype_imm),
-    Blt   ("blt",   0b110_0011, b, funct3 = 0b100                     ) (xreg_rs1, xreg_rs2, btype_imm),
-    Bge   ("bge",   0b110_0011, b, funct3 = 0b101                     ) (xreg_rs1, xreg_rs2, btype_imm),
-    Bltu  ("bltu",  0b110_0011, b, funct3 = 0b110                     ) (xreg_rs1, xreg_rs2, btype_imm),
-    Bgeu  ("bgeu",  0b110_0011, b, funct3 = 0b111                     ) (xreg_rs1, xreg_rs2, btype_imm),
+    Beq   ("beq",   0b110_0011, b, funct3 = 0b000                     ) (rs1: xreg, rs2: xreg, imm: btype),
+    Bne   ("bne",   0b110_0011, b, funct3 = 0b001                     ) (rs1: xreg, rs2: xreg, imm: btype),
+    Blt   ("blt",   0b110_0011, b, funct3 = 0b100                     ) (rs1: xreg, rs2: xreg, imm: btype),
+    Bge   ("bge",   0b110_0011, b, funct3 = 0b101                     ) (rs1: xreg, rs2: xreg, imm: btype),
+    Bltu  ("bltu",  0b110_0011, b, funct3 = 0b110                     ) (rs1: xreg, rs2: xreg, imm: btype),
+    Bgeu  ("bgeu",  0b110_0011, b, funct3 = 0b111                     ) (rs1: xreg, rs2: xreg, imm: btype),
 
-    Lb    ("lb",    0b000_0011, i, funct3 = 0b000                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Lh    ("lh",    0b000_0011, i, funct3 = 0b001                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Lw    ("lw",    0b000_0011, i, funct3 = 0b010                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Lbu   ("lbu",   0b000_0011, i, funct3 = 0b100                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Lhu   ("lhu",   0b000_0011, i, funct3 = 0b101                     ) (xreg_rd, xreg_rs1, itype_imm_signed),
+    Lb    ("lb",    0b000_0011, i, funct3 = 0b000                     ) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Lh    ("lh",    0b000_0011, i, funct3 = 0b001                     ) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Lw    ("lw",    0b000_0011, i, funct3 = 0b010                     ) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Lbu   ("lbu",   0b000_0011, i, funct3 = 0b100                     ) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Lhu   ("lhu",   0b000_0011, i, funct3 = 0b101                     ) (rd: xreg, rs1: xreg, imm: itype_signed),
 
-    Sb    ("sb",    0b010_0011, s, funct3 = 0b000                     ) (xreg_rs1, xreg_rs2, stype_imm),
-    Sh    ("sh",    0b010_0011, s, funct3 = 0b001                     ) (xreg_rs1, xreg_rs2, stype_imm),
-    Sw    ("sw",    0b010_0011, s, funct3 = 0b010                     ) (xreg_rs1, xreg_rs2, stype_imm),
+    Sb    ("sb",    0b010_0011, s, funct3 = 0b000                     ) (rs1: xreg, rs2: xreg, imm: stype),
+    Sh    ("sh",    0b010_0011, s, funct3 = 0b001                     ) (rs1: xreg, rs2: xreg, imm: stype),
+    Sw    ("sw",    0b010_0011, s, funct3 = 0b010                     ) (rs1: xreg, rs2: xreg, imm: stype),
 
-    Addi  ("addi",  0b001_0011, i,                      funct3 = 0b000) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Slti  ("slti",  0b001_0011, i,                      funct3 = 0b010) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Sltiu ("sltiu", 0b001_0011, i,                      funct3 = 0b011) (xreg_rd, xreg_rs1, itype_imm_unsigned),
-    Xori  ("xori",  0b001_0011, i,                      funct3 = 0b100) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Ori   ("ori",   0b001_0011, i,                      funct3 = 0b110) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Andi  ("andi",  0b001_0011, i,                      funct3 = 0b111) (xreg_rd, xreg_rs1, itype_imm_signed),
-    Slli  ("slli",  0b001_0011, i, funct7 = 0b000_0000, funct3 = 0b001) (xreg_rd, xreg_rs1, shamt),
-    Srli  ("srli",  0b001_0011, i, funct7 = 0b000_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, shamt),
-    Srai  ("srai",  0b001_0011, i, funct7 = 0b010_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, shamt),
+    Addi  ("addi",  0b001_0011, i,                      funct3 = 0b000) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Slti  ("slti",  0b001_0011, i,                      funct3 = 0b010) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Sltiu ("sltiu", 0b001_0011, i,                      funct3 = 0b011) (rd: xreg, rs1: xreg, imm: itype_unsigned),
+    Xori  ("xori",  0b001_0011, i,                      funct3 = 0b100) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Ori   ("ori",   0b001_0011, i,                      funct3 = 0b110) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Andi  ("andi",  0b001_0011, i,                      funct3 = 0b111) (rd: xreg, rs1: xreg, imm: itype_signed),
+    Slli  ("slli",  0b001_0011, i, funct7 = 0b000_0000, funct3 = 0b001) (rd: xreg, rs1: xreg, shamt),
+    Srli  ("srli",  0b001_0011, i, funct7 = 0b000_0000, funct3 = 0b101) (rd: xreg, rs1: xreg, shamt),
+    Srai  ("srai",  0b001_0011, i, funct7 = 0b010_0000, funct3 = 0b101) (rd: xreg, rs1: xreg, shamt),
 
-    Add   ("add",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b000) (xreg_rd, xreg_rs1, xreg_rs2),
-    Sub   ("sub",   0b011_0011, r, funct7 = 0b010_0000, funct3 = 0b000) (xreg_rd, xreg_rs1, xreg_rs2),
-    Sll   ("sll",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b001) (xreg_rd, xreg_rs1, xreg_rs2),
-    Slt   ("slt",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b010) (xreg_rd, xreg_rs1, xreg_rs2),
-    Sltu  ("sltu",  0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b011) (xreg_rd, xreg_rs1, xreg_rs2),
-    Xor   ("xor",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b100) (xreg_rd, xreg_rs1, xreg_rs2),
-    Srl   ("srl",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, xreg_rs2),
-    Sra   ("sra",   0b011_0011, r, funct7 = 0b010_0000, funct3 = 0b101) (xreg_rd, xreg_rs1, xreg_rs2),
-    Or    ("or",    0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b110) (xreg_rd, xreg_rs1, xreg_rs2),
-    And   ("and",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b111) (xreg_rd, xreg_rs1, xreg_rs2),
+    Add   ("add",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b000) (rd: xreg, rs1: xreg, rs2: xreg),
+    Sub   ("sub",   0b011_0011, r, funct7 = 0b010_0000, funct3 = 0b000) (rd: xreg, rs1: xreg, rs2: xreg),
+    Sll   ("sll",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b001) (rd: xreg, rs1: xreg, rs2: xreg),
+    Slt   ("slt",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b010) (rd: xreg, rs1: xreg, rs2: xreg),
+    Sltu  ("sltu",  0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b011) (rd: xreg, rs1: xreg, rs2: xreg),
+    Xor   ("xor",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b100) (rd: xreg, rs1: xreg, rs2: xreg),
+    Srl   ("srl",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b101) (rd: xreg, rs1: xreg, rs2: xreg),
+    Sra   ("sra",   0b011_0011, r, funct7 = 0b010_0000, funct3 = 0b101) (rd: xreg, rs1: xreg, rs2: xreg),
+    Or    ("or",    0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b110) (rd: xreg, rs1: xreg, rs2: xreg),
+    And   ("and",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b111) (rd: xreg, rs1: xreg, rs2: xreg),
 
     Fence ("fence", 0b000_1111, i,
         funct7_6_3 = 0b0000  ,
@@ -947,53 +952,53 @@ instructions! {
     ) (),
 
     // Zfencei
-    FenceI ("fence.i", 0b000_1111, i, funct3 = 0b001) (xreg_rd, xreg_rs1, itype_imm_unsigned),
+    FenceI ("fence.i", 0b000_1111, i, funct3 = 0b001) (rd: xreg, rs1: xreg, imm: itype_unsigned),
 
     // Zcsr
-    Csrrw  ("csrrw",   0b111_0011, i, funct3 = 0b001) (xreg_rd, xreg_rs1, csr),
-    Csrrs  ("csrrs",   0b111_0011, i, funct3 = 0b010) (xreg_rd, xreg_rs1, csr),
-    Csrrc  ("csrrc",   0b111_0011, i, funct3 = 0b011) (xreg_rd, xreg_rs1, csr),
-    Csrrwi ("csrrwi",  0b111_0011, i, funct3 = 0b101) (xreg_rd, csr_uimm, csr),
-    Csrrsi ("csrrsi",  0b111_0011, i, funct3 = 0b110) (xreg_rd, csr_uimm, csr),
-    Csrrci ("csrrci",  0b111_0011, i, funct3 = 0b111) (xreg_rd, csr_uimm, csr),
+    Csrrw  ("csrrw",   0b111_0011, i, funct3 = 0b001) (rd: xreg, csr, rs1: xreg),
+    Csrrs  ("csrrs",   0b111_0011, i, funct3 = 0b010) (rd: xreg, csr, rs1: xreg),
+    Csrrc  ("csrrc",   0b111_0011, i, funct3 = 0b011) (rd: xreg, csr, rs1: xreg),
+    Csrrwi ("csrrwi",  0b111_0011, i, funct3 = 0b101) (rd: xreg, csr, uimm: csr),
+    Csrrsi ("csrrsi",  0b111_0011, i, funct3 = 0b110) (rd: xreg, csr, uimm: csr),
+    Csrrci ("csrrci",  0b111_0011, i, funct3 = 0b111) (rd: xreg, csr, uimm: csr),
 
     // RV32F
-    Flw     ("flw",       0b000_0111, i, funct3 = 0b010)                                     (freg_rd, xreg_rs1, itype_imm_signed),
-    Fsw     ("fsw",       0b010_0111, s, funct3 = 0b010)                                     (xreg_rs1, freg_rs2, stype_imm),
+    Flw     ("flw",       0b000_0111, i, funct3 = 0b010)                                     (rd: freg, rs1: xreg, imm: itype_signed),
+    Fsw     ("fsw",       0b010_0111, s, funct3 = 0b010)                                     (rs1: xreg, rs2: freg, imm: stype),
 
-    FmaddS  ("fmadd.s",   0b100_0011, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
-    FmsubS  ("fmsub.s",   0b100_0111, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
-    FnmsubS ("fnmsub.s",  0b100_1011, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
-    FnmaddS ("fnmadd.s",  0b100_1111, r, funct2 = 0b00)                                      (freg_rd, freg_rs1, freg_rs2, freg_rs3, rm),
+    FmaddS  ("fmadd.s",   0b100_0011, r, funct2 = 0b00)                                      (rd: freg, rs1: freg, rs2: freg, rs3: freg, rm),
+    FmsubS  ("fmsub.s",   0b100_0111, r, funct2 = 0b00)                                      (rd: freg, rs1: freg, rs2: freg, rs3: freg, rm),
+    FnmsubS ("fnmsub.s",  0b100_1011, r, funct2 = 0b00)                                      (rd: freg, rs1: freg, rs2: freg, rs3: freg, rm),
+    FnmaddS ("fnmadd.s",  0b100_1111, r, funct2 = 0b00)                                      (rd: freg, rs1: freg, rs2: freg, rs3: freg, rm),
 
-    FaddS   ("fadd.s",    0b101_0011, r, funct7 = 0b000_0000)                                (freg_rd, freg_rs1, freg_rs2, rm),
-    FsubS   ("fsub.s",    0b101_0011, r, funct7 = 0b000_0100)                                (freg_rd, freg_rs1, freg_rs2, rm),
-    FmulS   ("fmul.s",    0b101_0011, r, funct7 = 0b000_1000)                                (freg_rd, freg_rs1, freg_rs2, rm),
-    FdivS   ("fdiv.s",    0b101_0011, r, funct7 = 0b000_1100)                                (freg_rd, freg_rs1, freg_rs2, rm),
-    FsqrtS  ("fsqrt.s",   0b101_0011, r, funct7 = 0b010_1100, rs2 = 0b00000)                 (freg_rd, freg_rs1, rm),
+    FaddS   ("fadd.s",    0b101_0011, r, funct7 = 0b000_0000)                                (rd: freg, rs1: freg, rs2: freg, rm),
+    FsubS   ("fsub.s",    0b101_0011, r, funct7 = 0b000_0100)                                (rd: freg, rs1: freg, rs2: freg, rm),
+    FmulS   ("fmul.s",    0b101_0011, r, funct7 = 0b000_1000)                                (rd: freg, rs1: freg, rs2: freg, rm),
+    FdivS   ("fdiv.s",    0b101_0011, r, funct7 = 0b000_1100)                                (rd: freg, rs1: freg, rs2: freg, rm),
+    FsqrtS  ("fsqrt.s",   0b101_0011, r, funct7 = 0b010_1100, rs2 = 0b00000)                 (rd: freg, rs1: freg, rm),
 
-    FsgnjS  ("fsgnj.s",   0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b000)                (freg_rd, freg_rs1, freg_rs2),
-    FsgnjnS ("fsgnjn.s",  0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b001)                (freg_rd, freg_rs1, freg_rs2),
-    FsgnjxS ("fsgnjx.s",  0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b010)                (freg_rd, freg_rs1, freg_rs2),
+    FsgnjS  ("fsgnj.s",   0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b000)                (rd: freg, rs1: freg, rs2: freg),
+    FsgnjnS ("fsgnjn.s",  0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b001)                (rd: freg, rs1: freg, rs2: freg),
+    FsgnjxS ("fsgnjx.s",  0b101_0011, r, funct7 = 0b001_0000, funct3 = 0b010)                (rd: freg, rs1: freg, rs2: freg),
 
-    FmaxS   ("fmax.s",    0b101_0011, r, funct7 = 0b001_0100, funct3 = 0b000)                (freg_rd, freg_rs1, freg_rs2),
-    FminS   ("fmin.s",    0b101_0011, r, funct7 = 0b001_0100, funct3 = 0b001)                (freg_rd, freg_rs1, freg_rs2),
+    FminS   ("fmin.s",    0b101_0011, r, funct7 = 0b001_0100, funct3 = 0b000)                (rd: freg, rs1: freg, rs2: freg),
+    FmaxS   ("fmax.s",    0b101_0011, r, funct7 = 0b001_0100, funct3 = 0b001)                (rd: freg, rs1: freg, rs2: freg),
 
-    FcvtWS  ("fcvt.w.s",  0b101_0011, r, funct7 = 0b110_0000, rs2 = 0b00000)                 (xreg_rd, freg_rs1, rm),
-    FcvtWuS ("fcvt.wu.s", 0b101_0011, r, funct7 = 0b110_0000, rs2 = 0b00001)                 (xreg_rd, freg_rs1, rm),
+    FcvtWS  ("fcvt.w.s",  0b101_0011, r, funct7 = 0b110_0000, rs2 = 0b00000)                 (rd: xreg, rs1: freg, rm),
+    FcvtWuS ("fcvt.wu.s", 0b101_0011, r, funct7 = 0b110_0000, rs2 = 0b00001)                 (rd: xreg, rs1: freg, rm),
 
-    FmvXW   ("fmv.x.w",   0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (xreg_rd, freg_rs1),
+    FmvXW   ("fmv.x.w",   0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (rd: xreg, rs1: freg),
 
-    FeqS    ("feq.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b010)                (xreg_rd, freg_rs1, freg_rs2),
-    FltS    ("flt.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b001)                (xreg_rd, freg_rs1, freg_rs2),
-    FleS    ("fle.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b000)                (xreg_rd, freg_rs1, freg_rs2),
+    FeqS    ("feq.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b010)                (rd: xreg, rs1: freg, rs2: freg),
+    FltS    ("flt.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b001)                (rd: xreg, rs1: freg, rs2: freg),
+    FleS    ("fle.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b000)                (rd: xreg, rs1: freg, rs2: freg),
 
-    FclassS ("fclass.s",  0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (xreg_rd, freg_rs1),
+    FclassS ("fclass.s",  0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (rd: xreg, rs1: freg),
 
-    FcvtSW  ("fcvt.s.w",  0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00000)                 (freg_rd, xreg_rs1, rm),
-    FcvtSWu ("fcvt.s.wu", 0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00001)                 (freg_rd, xreg_rs1, rm),
+    FcvtSW  ("fcvt.s.w",  0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00000)                 (rd: freg, rs1: xreg, rm),
+    FcvtSWu ("fcvt.s.wu", 0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00001)                 (rd: freg, rs1: xreg, rm),
 
-    FmvWX   ("fmv.w.x",   0b101_0011, r, funct7 = 0b111_1000, rs2 = 0b00000, funct3 = 0b000) (freg_rd, xreg_rs1),
+    FmvWX   ("fmv.w.x",   0b101_0011, r, funct7 = 0b111_1000, rs2 = 0b00000, funct3 = 0b000) (rd: freg, rs1: xreg),
 }
 
 macro_rules! asm_display {

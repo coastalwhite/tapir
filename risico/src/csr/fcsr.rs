@@ -1,4 +1,4 @@
-use super::{Csr, CsrInitContext, Mode};
+use super::CsrInitContext;
 
 #[derive(Clone, Debug)]
 pub struct Fcsr {
@@ -49,11 +49,21 @@ impl From<::softfloat_wrapper::ExceptionFlags> for ExceptionFlags {
         let mut flags = Self::empty();
 
         // @Hack. What is this. This should just be a bit cast.
-        if value.is_invalid() { flags |= Self::INVALID };
-        if value.is_infinite() { flags |= Self::DIVIDE_BY_ZERO };
-        if value.is_overflow() { flags |= Self::OVERFLOW };
-        if value.is_underflow() { flags |= Self::UNDERFLOW };
-        if value.is_inexact() { flags |= Self::INEXACT };
+        if value.is_invalid() {
+            flags |= Self::INVALID
+        };
+        if value.is_infinite() {
+            flags |= Self::DIVIDE_BY_ZERO
+        };
+        if value.is_overflow() {
+            flags |= Self::OVERFLOW
+        };
+        if value.is_underflow() {
+            flags |= Self::UNDERFLOW
+        };
+        if value.is_inexact() {
+            flags |= Self::INEXACT
+        };
 
         flags
     }
@@ -98,13 +108,9 @@ impl Fcsr {
     pub fn frm_write(&mut self, value: u32) {
         self.inner = (self.inner & !Self::FRM_MASK) | ((value << 5) & Self::FRM_MASK);
     }
-}
-
-impl Csr for Fcsr {
-    const MINIMUM_MODE: Mode = Mode::User;
 
     #[inline]
-    fn new(ctx: &CsrInitContext) -> Self {
+    pub fn new(ctx: &CsrInitContext) -> Self {
         let frm = 0b000; // TiesToEven
         let fflags = 0b00000;
 
@@ -114,16 +120,16 @@ impl Csr for Fcsr {
     }
 
     #[inline]
-    fn write(&mut self, value: u32) {
+    pub fn read(&self) -> u32 {
+        self.inner
+    }
+
+    #[inline]
+    pub fn write(&mut self, value: u32) {
         // bitlen = |frm| + |fflags|
         //        = 3     + 5
         //        = 8
         let value = value & 0xFF;
         self.inner = value;
-    }
-
-    #[inline]
-    fn read(&self) -> u32 {
-        self.inner
     }
 }

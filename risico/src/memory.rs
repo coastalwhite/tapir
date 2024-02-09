@@ -21,6 +21,10 @@ impl PlacedBytes {
             bytes,
         }
     }
+
+    pub fn end(&self) -> Addr {
+        self.start.offset(self.bytes().len() as i32)
+    }
     
     pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()

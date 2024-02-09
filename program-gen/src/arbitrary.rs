@@ -1,31 +1,19 @@
 use risico::memory::PlacedBytes;
+use rvhwfuzzer_encoding::{XRegIdent, FRegIdent, RoundingMode, Instruction};
 
 mod fpu32;
-
-use crate::{RegisterId, FPURegisterId};
 
 pub struct ArbitraryGenerationContext<P: ArbitraryParameterProvider> {
     pub state: risico::State<PlacedBytes>,
     pub parameter_provider: P,
 }
 
-#[repr(u8)]
-#[rustfmt::skip]
-pub enum RoundingMode {
-    TiesToEven     = 0b000,
-    ToZero         = 0b001,
-    Down           = 0b010,
-    Up             = 0b011,
-    ToMaxMagnitude = 0b100,
-    Dynamic        = 0b111,
-}
-
 pub trait ArbitraryParameterProvider {
-    fn take_register_src(&mut self) -> RegisterId;
-    fn take_register_dest(&mut self) -> RegisterId;
+    fn take_register_src(&mut self) -> XRegIdent;
+    fn take_register_dest(&mut self) -> XRegIdent;
 
-    fn take_fpu_register_src(&mut self) -> FPURegisterId;
-    fn take_fpu_register_dest(&mut self) -> FPURegisterId;
+    fn take_fpu_register_src(&mut self) -> FRegIdent;
+    fn take_fpu_register_dest(&mut self) -> FRegIdent;
     fn take_static_rounding_mode(&mut self) -> RoundingMode;
     fn take_rounding_mode(&mut self) -> RoundingMode;
 
@@ -63,19 +51,19 @@ impl<P: ArbitraryParameterProvider> ArbitraryGenerationContext<P> {
 }
 
 pub trait ArbitraryInstruction {
-    fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Self;
+    fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction;
 }
 
 macro_rules! impl_regreg_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Self {
-                Self {
-                    rs1: ctx.params_mut().take_register_src().0,
-                    rs2: ctx.params_mut().take_register_src().0,
-                    rd: ctx.params_mut().take_register_dest().0,
-                }
+            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+                Self::new(
+                    ctx.params_mut().take_register_dest(),
+                    ctx.params_mut().take_register_src(),
+                    ctx.params_mut().take_register_src(),
+                ).into()
             }
         }
         )+
@@ -86,12 +74,12 @@ macro_rules! impl_regimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Self {
-                Self {
-                    rs: ctx.params_mut().take_register_src().0,
-                    imm11_0: ctx.params_mut().take_u16(12),
-                    rd: ctx.params_mut().take_register_dest().0,
-                }
+            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+                Self::new(
+                    ctx.params_mut().take_register_dest(),
+                    ctx.params_mut().take_register_src(),
+                    ctx.params_mut().take_u16(12) as _,
+                ).into()
             }
         }
         )+
@@ -102,12 +90,12 @@ macro_rules! impl_shiftimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Self {
-                Self {
-                    rs: ctx.params_mut().take_register_src().0,
-                    shamt: ctx.params_mut().take_u8(5),
-                    rd: ctx.params_mut().take_register_dest().0,
-                }
+            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+                Self::new(
+                    ctx.params_mut().take_register_dest(),
+                    ctx.params_mut().take_register_src(),
+                    ctx.params_mut().take_u8(5),
+                ).into()
             }
         }
         )+
@@ -118,11 +106,11 @@ macro_rules! impl_reghighimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Self {
-                Self {
-                    imm31_12: ctx.params_mut().take_u32(20),
-                    rd: ctx.params_mut().take_register_dest().0,
-                }
+            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+                Self::new(
+                    ctx.params_mut().take_register_dest(),
+                    ctx.params_mut().take_u32(20) << 12,
+                ).into()
             }
         }
         )+
@@ -130,27 +118,27 @@ macro_rules! impl_reghighimm_args {
 }
 
 impl_regreg_args! {
-    AddArgs,
-    SubArgs,
-    SllArgs,
-    SltArgs,
-    SltuArgs,
-    XorArgs,
-    SrlArgs,
-    SraArgs,
-    OrArgs,
-    AndArgs,
+    Add,
+    Sub,
+    Sll,
+    Slt,
+    Sltu,
+    Xor,
+    Srl,
+    Sra,
+    Or,
+    And,
 }
 
 impl_regimm_args! {
-    AddiArgs,
-    SltiArgs,
-    SltiuArgs,
-    XoriArgs,
-    OriArgs,
-    AndiArgs,
+    Addi,
+    Slti,
+    Sltiu,
+    Xori,
+    Ori,
+    Andi,
 }
 
-impl_reghighimm_args! { LuiArgs, AuipcArgs }
+impl_reghighimm_args! { Lui, Auipc }
 
-impl_shiftimm_args! { SlliArgs, SrliArgs, SraiArgs }
+impl_shiftimm_args! { Slli, Srli, Srai }

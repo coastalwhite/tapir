@@ -1,21 +1,8 @@
-use std::io;
+use rvhwfuzzer_encoding::{CsrIndex, Instruction, XRegIdent};
 
-use crate::RegisterId;
-
-pub struct CsrRead {
-    rd: RegisterId,
-    id: u16,
-}
-
-pub struct CsrWrite {
-    rs: RegisterId,
-    id: u16,
-}
-
-pub struct CsrImmWrite {
-    uimm: u8,
-    id: u16,
-}
+pub struct CsrRead;
+pub struct CsrWrite;
+pub struct CsrImmWrite;
 
 macro_rules! csrs {
     (
@@ -34,7 +21,7 @@ macro_rules! csrs {
         }
 
         impl $crate::arbitrary::ArbitraryInstruction for CsrRead {
-            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Self {
+            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_CSRS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_CSRS { r - Self::NUM_CSRS } else { r };
 
@@ -43,10 +30,7 @@ macro_rules! csrs {
                 let mut i = 0;
                 $(
                     if i == r {
-                        return Self {
-                            rd,
-                            id: $id,
-                        };
+                        return ::rvhwfuzzer_encoding::Csrrc::new(rd, CsrIndex($id), XRegIdent::Zero).into();
                     }
                     #[allow(unused_assignments)]
                     {
@@ -59,7 +43,7 @@ macro_rules! csrs {
         }
 
         impl $crate::arbitrary::ArbitraryInstruction for CsrWrite {
-            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Self {
+            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_CSRS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_CSRS { r - Self::NUM_CSRS } else { r };
 
@@ -69,10 +53,7 @@ macro_rules! csrs {
                 $($(
                     if i == r {
                         stringify!($write_ident);
-                        return Self {
-                            rs,
-                            id: $id,
-                        };
+                        return ::rvhwfuzzer_encoding::Csrrw::new(XRegIdent::Zero, CsrIndex($id), rs).into();
                     }
                     #[allow(unused_assignments)]
                     {
@@ -85,7 +66,7 @@ macro_rules! csrs {
         }
 
         impl $crate::arbitrary::ArbitraryInstruction for CsrImmWrite {
-            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Self {
+            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_CSRS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_CSRS { r - Self::NUM_CSRS } else { r };
 
@@ -95,10 +76,7 @@ macro_rules! csrs {
                 $($(
                     if i == r {
                         stringify!($write_ident);
-                        return Self {
-                            uimm,
-                            id: $id,
-                        };
+                        return ::rvhwfuzzer_encoding::Csrrwi::new(XRegIdent::Zero, CsrIndex($id), uimm).into();
                     }
                     #[allow(unused_assignments)]
                     {
@@ -112,26 +90,17 @@ macro_rules! csrs {
     };
 }
 
-impl CsrRead {
-    pub fn encode(&self, writer: &mut impl io::Write) -> io::Result<()> {
-        ::rvhwfuzzer_encoding::CsrrcArgs { csr: self.id, rd: self.rd.0, rs1: 0 }.encode(writer)
-    }
-}
-
-impl CsrWrite {
-    pub fn encode(&self, writer: &mut impl io::Write) -> io::Result<()> {
-        ::rvhwfuzzer_encoding::CsrrwArgs { csr: self.id, rd: 0, rs1: self.rs.0 }.encode(writer)
-    }
-}
-
-impl CsrImmWrite {
-    pub fn encode(&self, writer: &mut impl io::Write) -> io::Result<()> {
-        ::rvhwfuzzer_encoding::CsrrwiArgs { csr: self.id, rd: 0, uimm: self.uimm }.encode(writer)
-    }
-}
-
 csrs! {
-    Frm    = 0x001 (write),
-    Fflags = 0x002 (write),
-    Fcsr   = 0x003 (write),
+    Frm       = 0x001 (write),
+    Fflags    = 0x002 (write),
+    Fcsr      = 0x003 (write),
+
+    MvendorId = 0xF11,
+    MarchId   = 0xF12,
+    MimpId    = 0xF13,
+    MhartId   = 0xF14,
+
+    Mstatus   = 0x300 (write),
+    Misa      = 0x301 (write),
+    Mstatush  = 0x310 (write),
 }

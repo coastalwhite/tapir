@@ -222,7 +222,7 @@ impl<M: BackingStore> State<M> {
 
         let mut next_pc = self.pc().offset(4);
 
-        eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
+        // eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
 
         match instruction {
             Lui(args) => {
@@ -417,7 +417,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32().wrapping_add(args.imm()));
+                self.registers.set(rd, rs.as_i32().wrapping_add(args.imm().into()));
             }
             Slti(args) => {
                 let rd = args.rd();
@@ -425,7 +425,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, u32::from(rs.as_i32() < args.imm()));
+                self.registers.set(rd, u32::from(rs.as_i32() < args.imm().into()));
             }
             Sltiu(args) => {
                 let rd = args.rd();
@@ -433,7 +433,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, u32::from(rs.as_u32() < args.imm()));
+                self.registers.set(rd, u32::from(rs.as_u32() < args.imm().into()));
             }
             Xori(args) => {
                 let rd = args.rd();
@@ -441,7 +441,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32() ^ args.imm());
+                self.registers.set(rd, rs.as_i32() ^ i32::from(args.imm()));
             }
             Andi(args) => {
                 let rd = args.rd();
@@ -449,7 +449,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32() & args.imm());
+                self.registers.set(rd, rs.as_i32() & i32::from(args.imm()));
             }
             Ori(args) => {
                 let rd = args.rd();
@@ -457,7 +457,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32() | args.imm());
+                self.registers.set(rd, rs.as_i32() | i32::from(args.imm()));
             }
             Slli(args) => {
                 let rd = args.rd();
@@ -1127,7 +1127,7 @@ impl<M: BackingStore> State<M> {
         self.registers.pc = next_pc;
     }
 
-    pub fn memory(&mut self) -> &M {
+    pub fn memory(&self) -> &M {
         &self.memory
     }
 

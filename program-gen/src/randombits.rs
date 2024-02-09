@@ -1,5 +1,5 @@
 pub struct RandomBits {
-    source: rand::rngs::ThreadRng,
+    source: fastrand::Rng,
     current: u64,
     remaining: u32,
 }
@@ -13,15 +13,13 @@ impl RandomBits {
         }
     }
 
-    pub fn take(&mut self, mut num_bits: u32) -> u64 {
+    pub fn take(&mut self, num_bits: u32) -> u64 {
         debug_assert!(num_bits > 0);
         debug_assert!(num_bits <= 64);
 
-        let taken_bits = u32::min(num_bits, self.remaining);
-
         // The short path where the current still has enough entropy bits to feed the request.
         if self.remaining > num_bits {
-            let mask = (1u64 << num_bits).wrapping_sub(1);
+            let mask = 1u64.wrapping_shl(num_bits).wrapping_sub(1);
             let result = self.current & mask;
 
             self.current >>= num_bits;
@@ -35,13 +33,12 @@ impl RandomBits {
 
         let num_bits = num_bits - self.remaining;
 
-        use rand::Rng;
-        let new: u64 = self.source.gen();
+        let new: u64 = self.source.u64(..);
 
         self.remaining = 64 - num_bits;
         self.current = new >> num_bits;
 
-        let mask = (1u64 << num_bits).wrapping_sub(1);
+        let mask = 1u64.wrapping_shl(num_bits).wrapping_sub(1);
 
         result & (new & mask)
     }

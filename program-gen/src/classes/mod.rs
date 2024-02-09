@@ -1,5 +1,6 @@
 macro_rules! define_instruction_class {
     ($name:ident { $($instr_name:ident($args_name:ident)),+ $(,)? }) => {
+        #[derive(Debug)]
         pub enum $name {
             $(
             $instr_name(::rvhwfuzzer_encoding::$args_name),
@@ -32,14 +33,14 @@ macro_rules! define_instruction_class {
         }
 
         impl $crate::arbitrary::ArbitraryInstruction for $name {
-            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> Self {
+            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> ::rvhwfuzzer_encoding::Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_INSTRUCTIONS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_INSTRUCTIONS { r - Self::NUM_INSTRUCTIONS } else { r };
 
                 let mut i = 0;
                 $(
                     if i == r {
-                        return Self::$instr_name(<::rvhwfuzzer_encoding::$args_name as $crate::arbitrary::ArbitraryInstruction>::take(ctx));
+                        return <::rvhwfuzzer_encoding::$args_name as $crate::arbitrary::ArbitraryInstruction>::take(ctx).into();
                     }
                     #[allow(unused_assignments)]
                     {
