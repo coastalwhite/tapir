@@ -3,11 +3,12 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::process::exit;
 
-use rvhwfuzzer_encoding::{XRegIdent, FRegIdent};
 use ::softfloat_wrapper::{Float, F32};
+use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
 
-use crate::csr::ControlStatusRegisters;
 use crate::csr::fcsr::ExceptionFlags;
+use crate::csr::mtvec::TrapCause;
+use crate::csr::ControlStatusRegisters;
 use crate::device_config::Isa;
 use crate::driver::cache::CacheResult;
 use crate::memory::{BackingStore, MappedMemory};
@@ -54,6 +55,7 @@ pub struct State<M: BackingStore> {
     registers: Registers,
     isa: Isa,
     syscall_behavior: SystemCallBehavior,
+    abort_on_missing_csr: bool,
     memory: M,
     instruction_counter: u64,
 }
@@ -140,13 +142,14 @@ impl<M: BackingStore> State<M> {
             pc: entry.into(),
             xregs: [0.into(); 31],
             fregs: [0.; 32],
-            csr: ControlStatusRegisters::new(&crate::csr::CsrInitContext {  }),
+            csr: ControlStatusRegisters::new(&crate::csr::CsrInitContext {}),
         };
 
         State {
             registers,
             isa,
             syscall_behavior,
+            abort_on_missing_csr: true,
             memory,
             instruction_counter: 0,
         }
@@ -171,7 +174,7 @@ impl<M: BackingStore> State<M> {
 
         self.registers.csr.fcsr.set_fflags(fflags);
     }
-    
+
     pub fn get_rounding_mode(&mut self, rm: u8) -> ::softfloat_wrapper::RoundingMode {
         // Dynamic rounding mode
         let rm = if rm == 0b111 {
@@ -192,7 +195,7 @@ impl<M: BackingStore> State<M> {
             _ => {
                 eprintln!("rm = {rm:03b}");
                 unimplemented!()
-            },
+            }
         }
     }
 
@@ -207,7 +210,9 @@ impl<M: BackingStore> State<M> {
 
     pub fn instruction_decode(&mut self, imemory: Word) -> rvhwfuzzer_encoding::Instruction {
         let mut imemory_bytes = &imemory.to_le_bytes()[..];
-        let Some(instruction) = rvhwfuzzer_encoding::Instruction::decode(&mut imemory_bytes).unwrap() else {
+        let Some(instruction) =
+            rvhwfuzzer_encoding::Instruction::decode(&mut imemory_bytes).unwrap()
+        else {
             panic!(
                 "unknown instruction 0x{:08x} at pc=0x{:08x}",
                 imemory.as_addr(),
@@ -222,7 +227,21 @@ impl<M: BackingStore> State<M> {
 
         let mut next_pc = self.pc().offset(4);
 
-        // eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
+        macro_rules! trigger_trap {
+            ($trap:ident) => {{
+                self.registers.csr.mepc.write(next_pc.as_u32());
+                let addr = self
+                    .registers
+                    .csr
+                    .mtvec
+                    .cause_addr(TrapCause::$trap)
+                    .unwrap();
+                self.registers.pc = Addr::from(addr);
+                return;
+            }};
+        }
+
+        eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
 
         match instruction {
             Lui(args) => {
@@ -417,7 +436,8 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, rs.as_i32().wrapping_add(args.imm().into()));
+                self.registers
+                    .set(rd, rs.as_i32().wrapping_add(args.imm().into()));
             }
             Slti(args) => {
                 let rd = args.rd();
@@ -425,7 +445,8 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, u32::from(rs.as_i32() < args.imm().into()));
+                self.registers
+                    .set(rd, u32::from(rs.as_i32() < args.imm().into()));
             }
             Sltiu(args) => {
                 let rd = args.rd();
@@ -433,7 +454,8 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                self.registers.set(rd, u32::from(rs.as_u32() < args.imm().into()));
+                self.registers
+                    .set(rd, u32::from(rs.as_u32() < args.imm().into()));
             }
             Xori(args) => {
                 let rd = args.rd();
@@ -609,7 +631,8 @@ impl<M: BackingStore> State<M> {
                 let result = rs1.fused_mul_add(rs2, rs3, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FnmsubS(args) => {
                 let rm = args.rm();
@@ -632,7 +655,8 @@ impl<M: BackingStore> State<M> {
                 let result = (rs1.neg()).fused_mul_add(rs2, rs3.neg(), rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FmsubS(args) => {
                 let rm = args.rm();
@@ -655,7 +679,8 @@ impl<M: BackingStore> State<M> {
                 let result = rs1.fused_mul_add(rs2, rs3.neg(), rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FnmaddS(args) => {
                 let rm = args.rm();
@@ -678,7 +703,8 @@ impl<M: BackingStore> State<M> {
                 let result = (rs1.neg()).fused_mul_add(rs2, rs3, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             Fsw(args) => {
                 let rs1 = args.rs1();
@@ -722,7 +748,8 @@ impl<M: BackingStore> State<M> {
                 let result = rs1.mul(rs2, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FdivS(args) => {
                 let rm = args.rm();
@@ -742,7 +769,8 @@ impl<M: BackingStore> State<M> {
                 let result = rs1.div(rs2, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FaddS(args) => {
                 let rm = args.rm();
@@ -755,6 +783,9 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
+                dbg!(rs1);
+                dbg!(rs2);
+
                 let rs1 = F32::from_f32(rs1);
                 let rs2 = F32::from_f32(rs2);
 
@@ -762,7 +793,10 @@ impl<M: BackingStore> State<M> {
                 let result = rs1.add(rs2, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                dbg!(f32::from_bits(result.to_bits()));
+
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FsubS(args) => {
                 let rm = args.rm();
@@ -782,7 +816,8 @@ impl<M: BackingStore> State<M> {
                 let result = rs1.sub(rs2, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FltS(args) => {
                 let rd = args.rd();
@@ -878,9 +913,9 @@ impl<M: BackingStore> State<M> {
                 let result = F32::from_i32(rs1.as_i32(), rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
-
-            },
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
+            }
             FcvtWS(args) => {
                 let rm = args.rm();
                 let rd = args.rd();
@@ -895,7 +930,7 @@ impl<M: BackingStore> State<M> {
                 self.store_exception_flags();
 
                 self.registers.set(rd, result);
-            },
+            }
             FsqrtS(args) => {
                 let rm = args.rm();
                 let rd = args.rd();
@@ -910,7 +945,8 @@ impl<M: BackingStore> State<M> {
                 let result = Float::sqrt(&rs1, rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
             }
             FcvtSWu(args) => {
                 let rm = args.rm();
@@ -924,8 +960,9 @@ impl<M: BackingStore> State<M> {
                 let result = F32::from_u32(rs1.as_u32(), rm);
                 self.store_exception_flags();
 
-                self.registers.set_freg(rd, f32::from_bits(result.to_bits()));
-            },
+                self.registers
+                    .set_freg(rd, f32::from_bits(result.to_bits()));
+            }
             FcvtWuS(args) => {
                 let rm = args.rm();
                 let rd = args.rd();
@@ -940,25 +977,25 @@ impl<M: BackingStore> State<M> {
                 self.store_exception_flags();
 
                 self.registers.set(rd, result);
-            },
+            }
             FclassS(args) => {
                 let rd = args.rd();
                 let rs1 = args.rs1();
 
                 let rs1 = self.registers.get_freg(rs1);
+                let bits = rs1.to_bits();
 
                 let class = match rs1 {
-                    f if f == f32::NEG_INFINITY => 0,
-                    f if f.is_normal() && f.is_sign_negative() => 1,
-                    f if f.is_subnormal() && f.is_sign_negative() => 2,
-                    f if f == 0. && f.is_sign_negative() => 3,
-                    f if f == 0. && f.is_sign_positive() => 4,
-                    f if f.is_subnormal() && f.is_sign_positive() => 5,
-                    f if f.is_normal() && f.is_sign_positive() => 6,
-                    f if f == f32::INFINITY => 7,
-                    // @Hack. There is also a quiet NaN
-                    f if f.is_nan() => 8,
-                    // f if f.is_nan() && f.is_quiet() => 9,
+                    f if f.is_infinite() && f.is_sign_negative() => 1 << 0,
+                    f if f.is_normal() && f.is_sign_negative() => 1 << 1,
+                    f if f.is_subnormal() && f.is_sign_negative() => 1 << 2,
+                    _ if bits == 0x8000_0000 => 1 << 3,
+                    _ if bits == 0x0000_0000 => 1 << 4,
+                    f if f.is_subnormal() && f.is_sign_positive() => 1 << 5,
+                    f if f.is_normal() && f.is_sign_positive() => 1 << 6,
+                    f if f.is_infinite() && f.is_sign_positive() => 1 << 7,
+                    _ if bits & 0x7FC0_0000 == 0x7F80_0000  => 1 << 8,
+                    _ if bits & 0x7FC0_0000 == 0x7FC0_0000  => 1 << 9,
                     _ => unreachable!(),
                 };
 
@@ -970,7 +1007,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs1 = self.registers.get(rs1);
 
-                self.registers.set_freg(rd, rs1.as_u32() as f32);
+                self.registers.set_freg(rd, rs1.as_f32());
             }
             FmvXW(args) => {
                 let rd = args.rd();
@@ -978,7 +1015,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs1 = self.registers.get_freg(rs1);
 
-                self.registers.set(rd, rs1 as u32);
+                self.registers.set(rd, Word::from_f32(rs1));
             }
             Csrrw(args) => {
                 let csr = args.csr();
@@ -987,10 +1024,15 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers().get(rs);
 
-                self.registers.csr.write(csr, rs.as_u32());
+                let Ok(value) = self.registers.csr.write(csr, rs.as_u32()) else {
+                    if self.abort_on_missing_csr {
+                        let csr = csr.0;
+                        eprintln!("[ERROR][CSRRW] Missing CSR: {csr} (0x{csr:03x}) ");
+                        std::process::exit(1);
+                    }
+                    trigger_trap!(IllegalInstruction);
+                };
 
-                let value = self.registers.csr.read(csr);
-                
                 self.registers.set(rd, value);
             }
             Csrrs(args) => {
@@ -998,13 +1040,22 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let rs = args.rs1();
 
-                let rs = self.registers().get(rs);
+                let value = if rs == XRegIdent::Zero {
+                    self.registers.csr.read(csr)
+                } else {
+                    let rs = self.registers().get(rs);
+                    self.registers.csr.update(csr, |v| v | rs.as_u32())
+                };
 
-                let value = self.registers.csr.read(csr);
-                self.registers.csr.write(csr, value | rs.as_u32());
+                let Ok(value) = value else {
+                    if self.abort_on_missing_csr {
+                        let csr = csr.0;
+                        eprintln!("[ERROR][CSRRS] Missing CSR: {csr} (0x{csr:03x}) ");
+                        std::process::exit(1);
+                    }
+                    trigger_trap!(IllegalInstruction);
+                };
 
-                let value = self.registers.csr.read(csr);
-                
                 self.registers.set(rd, value);
             }
             Csrrc(args) => {
@@ -1012,13 +1063,22 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let rs = args.rs1();
 
-                let rs = self.registers().get(rs);
+                let value = if rs == XRegIdent::Zero {
+                    self.registers.csr.read(csr)
+                } else {
+                    let rs = self.registers().get(rs);
+                    self.registers.csr.update(csr, |v| v & !rs.as_u32())
+                };
 
-                let value = self.registers.csr.read(csr);
-                self.registers.csr.write(csr, value & !rs.as_u32());
+                let Ok(value) = value else {
+                    if self.abort_on_missing_csr {
+                        let csr = csr.0;
+                        eprintln!("[ERROR][CSRRC] Missing CSR: {csr} (0x{csr:03x}) ");
+                        std::process::exit(1);
+                    }
+                    trigger_trap!(IllegalInstruction);
+                };
 
-                let value = self.registers.csr.read(csr);
-                
                 self.registers.set(rd, value);
             }
             Csrrwi(args) => {
@@ -1026,10 +1086,15 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                self.registers.csr.write(csr, uimm.into());
+                let Ok(value) = self.registers.csr.write(csr, uimm.into()) else {
+                    if self.abort_on_missing_csr {
+                        let csr = csr.0;
+                        eprintln!("[ERROR][CSRRWI] Missing CSR: {csr} (0x{csr:03x}) ");
+                        std::process::exit(1);
+                    }
+                    trigger_trap!(IllegalInstruction);
+                };
 
-                let value = self.registers.csr.read(csr);
-                
                 self.registers.set(rd, value);
             }
             Csrrsi(args) => {
@@ -1037,11 +1102,15 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let value = self.registers.csr.read(csr);
-                self.registers.csr.write(csr, value & !u32::from(uimm));
+                let Ok(value) = self.registers.csr.update(csr, |v| v & !u32::from(uimm)) else {
+                    if self.abort_on_missing_csr {
+                        let csr = csr.0;
+                        eprintln!("[ERROR][CSRRSI] Missing CSR: {csr} (0x{csr:03x}) ");
+                        std::process::exit(1);
+                    }
+                    trigger_trap!(IllegalInstruction);
+                };
 
-                let value = self.registers.csr.read(csr);
-                
                 self.registers.set(rd, value);
             }
             Csrrci(args) => {
@@ -1049,11 +1118,15 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let value = self.registers.csr.read(csr);
-                self.registers.csr.write(csr, value | u32::from(uimm));
+                let Ok(value) = self.registers.csr.update(csr, |v| v | !u32::from(uimm)) else {
+                    if self.abort_on_missing_csr {
+                        let csr = csr.0;
+                        eprintln!("[ERROR][CSRRCI] Missing CSR: {csr} (0x{csr:03x}) ");
+                        std::process::exit(1);
+                    }
+                    trigger_trap!(IllegalInstruction);
+                };
 
-                let value = self.registers.csr.read(csr);
-                
                 self.registers.set(rd, value);
             }
             Ecall(_args) => {
@@ -1078,9 +1151,12 @@ impl<M: BackingStore> State<M> {
             Ebreak(_args) => {
                 eprintln!("Environment break called!");
                 std::process::exit(0);
-            },
-            Fence(_) => {},
-            FenceI(_) => {},
+            }
+            Fence(_) => {}
+            FenceI(_) => {}
+            MRet(_) => {
+                next_pc = Addr::from(self.registers.csr.mepc.read());
+            }
             // Environment(variant) => {
             //     self.instruction_counter += 1;
             //     match variant {

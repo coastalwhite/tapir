@@ -31,14 +31,25 @@ impl AssertType for i32 {
         self as u32
     }
 }
+
 impl AssertType for f32 {
     const ASSERT_TYPE_VALUE: u32 = 3;
+
+    #[inline(always)]
+    fn as_u32(self) -> u32 {
+        self.to_bits()
+    }
+}
+
+impl<T> AssertType for *const T {
+    const ASSERT_TYPE_VALUE: u32 = 4;
 
     #[inline(always)]
     fn as_u32(self) -> u32 {
         self as u32
     }
 }
+
 
 #[inline(always)]
 fn _syscall_assert_eq_unknown(a: u32, b: u32) {

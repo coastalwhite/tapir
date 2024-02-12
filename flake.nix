@@ -4,9 +4,11 @@
   inputs = {
       nixpkgs.url = "github:NixOS/nixpkgs";
       flake-utils.url = "github:numtide/flake-utils";
+
+      riscv-tests.url = "github:coastalwhite/riscv-tests-nixflake";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, riscv-tests }:
     flake-utils.lib.eachDefaultSystem (system: let
         pkgs = import nixpkgs { inherit system; };
         riscv-toolchain = import nixpkgs {            
@@ -23,6 +25,8 @@
                 ];
 
 				shellHook = ''
+                    export RISCV_TESTS="${riscv-tests.packages.${system}.default}"
+                    export RISCV="${riscv-toolchain.buildPackages.gcc}"
 					rustup target add riscv32i-unknown-none-elf
 					rustup target add riscv32imac-unknown-none-elf
 				'';

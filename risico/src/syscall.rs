@@ -49,6 +49,7 @@ enum AssertType {
     U32 = 1,
     I32 = 2,
     F32 = 3,
+    Ptr = 4,
     Invalid,
 }
 
@@ -59,6 +60,7 @@ impl From<u32> for AssertType {
             1 => Self::U32,
             2 => Self::I32,
             3 => Self::F32,
+            3 => Self::Ptr,
             _ => Self::Invalid,
         }
     }
@@ -121,22 +123,28 @@ impl SystemCallConvention for TestingConvention {
                 let lhs = args[1];
                 let rhs = args[2];
 
+                dbg!(lhs);
+                dbg!(rhs);
+
                 if lhs != rhs {
                     match input_type {
                         AssertType::Unknown => {
                             eprintln!("Assert failed (unknown type): {lhs} != {rhs}");
                         },
                         AssertType::U32 => {
-                            eprintln!("Assert failed (u32): {lhs} != {rhs}");
+                            eprintln!("Assert failed (u32): {lhs} (0x{lhs:08x}) != {rhs} (0x{rhs:08x})");
                         }
                         AssertType::I32 => {
                             eprintln!("Assert failed (i32): {} != {}", lhs as i32, rhs  as i32);
                         }
                         AssertType::F32 => {
-                            eprintln!("Assert failed (f32): {} (0x{lhs:08X}) != {} (0x{rhs:08X}", lhs as f32, rhs as f32);
+                            eprintln!("Assert failed (f32): {} (0x{lhs:08X}) != {} (0x{rhs:08X})", f32::from_bits(lhs), f32::from_bits(rhs));
+                        }
+                        AssertType::Ptr => {
+                            eprintln!("Assert failed (ptr): 0x{lhs:08X}) != 0x{rhs:08X}");
                         }
                         AssertType::Invalid => {
-                            eprintln!("Assert failed (invalid type): {lhs:08X} != {rhs:08X} ");
+                            eprintln!("Assert failed (invalid type): {lhs:08X} != {rhs:08X}");
                         }
                     }
                     SystemCallResult::Abort
@@ -235,6 +243,7 @@ impl SystemCallConvention for LinuxConvention {
             93 => {
                 // exit
                 let error_code = args[0];
+                dbg!(error_code);
                 SystemCallResult::Exit(error_code as i32)
             }
             94..=440 => unimplemented!(),

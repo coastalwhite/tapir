@@ -18,6 +18,24 @@
         "type": "github"
       }
     },
+    "flake-utils_2": {
+      "inputs": {
+        "systems": "systems_2"
+      },
+      "locked": {
+        "lastModified": 1705309234,
+        "narHash": "sha256-uNRRNRKmJyCRC/8y1RqBkqWBLM034y4qN7EprSdmgyA=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "1ef2e671c3b0c19053962c07dbda38332dcebf26",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1707312649,
@@ -33,13 +51,82 @@
         "type": "github"
       }
     },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1707748463,
+        "narHash": "sha256-f3AbuA2Fn4mtfGTdTo98jOcwtsdpAf9/Q7cxF7PU5d8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "9349d172d47e701b2d0424fbc7b049f1865efc91",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "riscv-tests": {
+      "inputs": {
+        "flake-utils": "flake-utils_2",
+        "nixpkgs": "nixpkgs_2",
+        "riscv-tests": "riscv-tests_2"
+      },
+      "locked": {
+        "lastModified": 1707751708,
+        "narHash": "sha256-5FU97TnObH+c7aqsa/SOHY+9a2citS3ldi0o83Pd5Gg=",
+        "owner": "coastalwhite",
+        "repo": "riscv-tests-nixflake",
+        "rev": "830431395b34fac1b37c4ea64a4023d204b2c7a1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "coastalwhite",
+        "repo": "riscv-tests-nixflake",
+        "type": "github"
+      }
+    },
+    "riscv-tests_2": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1706932688,
+        "narHash": "sha256-nvDIXqcMFNL8kIwttZAvJmNlYIcLBO2CDkI+l9ElCsY=",
+        "ref": "refs/heads/master",
+        "rev": "ad33ed3cb50b4cc23a44657a541f76325e659af0",
+        "revCount": 963,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/riscv-software-src/riscv-tests"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/riscv-software-src/riscv-tests"
+      }
+    },
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "riscv-tests": "riscv-tests"
       }
     },
     "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "systems_2": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",

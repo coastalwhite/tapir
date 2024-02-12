@@ -867,6 +867,7 @@ fn decode_system(bits: u32) -> Option<InstructionVariant> {
     match funct3 {
         0b000 if Ecall::matches(bits) => Some(InstructionVariant::Ecall),
         0b000 if Ebreak::matches(bits) => Some(InstructionVariant::Ebreak),
+        0b000 if MRet::matches(bits) => Some(InstructionVariant::MRet),
         0b001 => Some(InstructionVariant::Csrrw),
         0b010 => Some(InstructionVariant::Csrrs),
         0b011 => Some(InstructionVariant::Csrrc),
@@ -993,12 +994,15 @@ instructions! {
     FltS    ("flt.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b001)                (rd: xreg, rs1: freg, rs2: freg),
     FleS    ("fle.s",     0b101_0011, r, funct7 = 0b101_0000, funct3 = 0b000)                (rd: xreg, rs1: freg, rs2: freg),
 
-    FclassS ("fclass.s",  0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b000) (rd: xreg, rs1: freg),
+    FclassS ("fclass.s",  0b101_0011, r, funct7 = 0b111_0000, rs2 = 0b00000, funct3 = 0b001) (rd: xreg, rs1: freg),
 
     FcvtSW  ("fcvt.s.w",  0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00000)                 (rd: freg, rs1: xreg, rm),
     FcvtSWu ("fcvt.s.wu", 0b101_0011, r, funct7 = 0b110_1000, rs2 = 0b00001)                 (rd: freg, rs1: xreg, rm),
 
     FmvWX   ("fmv.w.x",   0b101_0011, r, funct7 = 0b111_1000, rs2 = 0b00000, funct3 = 0b000) (rd: freg, rs1: xreg),
+
+    // Privileged Instructions
+    MRet    ("mret",      0b111_0011, r, funct7 = 0b001_1000, rs2 = 0b00010, rs1 = 0b00000, funct3 = 0b000, rd = 0b00000) (),
 }
 
 macro_rules! asm_display {
@@ -1122,4 +1126,7 @@ asm_display! {
     FcvtSWu ("{},{},{}", i.rd(), i.rs1(), i.rm()),
 
     FmvWX   ("{},{}", i.rd(), i.rs1()),
+
+    // Privileged Instructions
+    MRet,
 }

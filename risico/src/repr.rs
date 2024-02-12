@@ -457,6 +457,16 @@ impl Word {
     }
 
     #[inline]
+    pub fn as_f32(self) -> f32 {
+        f32::from_bits(self.as_u32())
+    }
+    
+    #[inline]
+    pub fn from_f32(x: f32) -> Self {
+        Self(x.to_bits())
+    }
+
+    #[inline]
     pub fn as_offset(self) -> Offset {
         Offset(self.as_i32())
     }

@@ -225,7 +225,19 @@ def main():
         log_error(f'Failed to compile risico. Reason: {e}')
         eprint(traceback.format_exc())
 
-    shutil.rmtree(project_dirs['OUTPUT'])
+    try:
+        shutil.rmtree(project_dirs['OUTPUT'])
+    except:
+        pass
+
+    try:
+        os.makedirs(project_dirs['OUTPUT'])
+    except:
+        pass
+
+    keep = os.path.join(project_dirs['OUTPUT'], '.gitkeep')
+    with open(keep, 'a'):
+        os.utime(keep, None)
 
     failed_compiles = 0
     for name, [tests, ext, cat_compile, _] in categories.items():
@@ -259,6 +271,8 @@ def main():
 
     failed_runs = 0
     for name, [tests, _, _, run] in categories.items():
+        print()
+        print(f"[{name}]:")
         for t in tests:
             bin = os.path.join(project_dirs['OUTPUT'], name, t)
 
@@ -269,8 +283,9 @@ def main():
                 failed_runs += 1
 
                 eprint(f"{t}: error. return code = {e.returncode}")
-                eprint(e.stderr.decode())
-                eprint()
+                eprint('--- STDERR ---')
+                eprint(e.stderr.decode(), end='')
+                eprint('--------------')
             except Exception as e:
                 failed_runs += 1
 
