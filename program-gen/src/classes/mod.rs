@@ -33,22 +33,17 @@ macro_rules! define_instruction_class {
         }
 
         impl $crate::arbitrary::ArbitraryInstruction for $name {
-            fn take<P: $crate::arbitrary::ArbitraryParameterProvider>(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext<P>) -> ::rvhwfuzzer_encoding::Instruction {
+            fn take(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> ::rvhwfuzzer_encoding::Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_INSTRUCTIONS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_INSTRUCTIONS { r - Self::NUM_INSTRUCTIONS } else { r };
 
-                let mut i = 0;
-                $(
-                    if i == r {
-                        return <::rvhwfuzzer_encoding::$args_name as $crate::arbitrary::ArbitraryInstruction>::take(ctx).into();
-                    }
-                    #[allow(unused_assignments)]
-                    {
-                        i += 1;
-                    }
-                )+
+                static LUT: [fn(&mut $crate::arbitrary::ArbitraryGenerationContext) -> ::rvhwfuzzer_encoding::Instruction; 0 $(+ { stringify!($args_name); 1 })+] = [
+                    $(
+                    <::rvhwfuzzer_encoding::$args_name as $crate::arbitrary::ArbitraryInstruction>::take, 
+                    )+
+                ];
 
-                unreachable!();
+                (LUT[r])(ctx)
             }
         }
 

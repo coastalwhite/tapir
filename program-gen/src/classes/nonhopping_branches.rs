@@ -1,14 +1,14 @@
 use rvhwfuzzer_encoding::Instruction;
 
 use crate::arbitrary::{
-    ArbitraryGenerationContext, ArbitraryInstruction, ArbitraryParameterProvider,
+    ArbitraryGenerationContext, ArbitraryInstruction,
 };
 
 #[derive(Debug)]
 pub struct NonHoppingBranch;
 
 impl ArbitraryInstruction for NonHoppingBranch {
-    fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+    fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
         use rvhwfuzzer_encoding as I;
 
         let r = ctx.params_mut().take_u8(1);

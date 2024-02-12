@@ -1,4 +1,4 @@
-use rvhwfuzzer_program_gen::{ControlFlowGraph, generate_binary};
+use rvhwfuzzer_program_gen::generate_binary;
 
 fn main() -> std::io::Result<()> {
     use std::io::Write;
@@ -9,9 +9,7 @@ fn main() -> std::io::Result<()> {
     let mut num_instructions = 0u64;
 
     for i in 0..100000 {
-        let cfg = ControlFlowGraph::new();
-
-        let binary = generate_binary(cfg, 0x8000_0000)?;
+        let binary = generate_binary(0x8000_0000)?;
 
         // for (i, b) in binary.iter().enumerate() {
         //     if i != 0 && i % 8 == 0 {

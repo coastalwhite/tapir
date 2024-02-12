@@ -526,6 +526,11 @@ impl Addr {
     }
 
     #[inline]
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    #[inline]
     pub fn to(self, to: Addr) -> AddrIterator {
         AddrIterator {
             start: self,

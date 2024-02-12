@@ -1,38 +1,21 @@
 use risico::memory::PlacedBytes;
-use rvhwfuzzer_encoding::{XRegIdent, FRegIdent, RoundingMode, Instruction};
+use rvhwfuzzer_encoding::Instruction;
+
+use crate::RegisterRecencyList;
 
 mod fpu32;
 
-pub struct ArbitraryGenerationContext<P: ArbitraryParameterProvider> {
+pub enum HopTarget {
+    Padded(u32),
+}
+
+pub struct ArbitraryGenerationContext {
+    pub hop_target: HopTarget,
     pub state: risico::State<PlacedBytes>,
-    pub parameter_provider: P,
+    pub parameter_provider: RegisterRecencyList,
 }
 
-pub trait ArbitraryParameterProvider {
-    fn take_register_src(&mut self) -> XRegIdent;
-    fn take_register_dest(&mut self) -> XRegIdent;
-
-    fn take_fpu_register_src(&mut self) -> FRegIdent;
-    fn take_fpu_register_dest(&mut self) -> FRegIdent;
-    fn take_static_rounding_mode(&mut self) -> RoundingMode;
-    fn take_rounding_mode(&mut self) -> RoundingMode;
-
-    fn take_immediate(&mut self, bitsize: u32) -> u64;
-    fn take_u8(&mut self, bitsize: u32) -> u8 {
-        debug_assert!(bitsize <= 8);
-        self.take_immediate(bitsize) as u8
-    }
-    fn take_u16(&mut self, bitsize: u32) -> u16 {
-        debug_assert!(bitsize <= 16);
-        self.take_immediate(bitsize) as u16
-    }
-    fn take_u32(&mut self, bitsize: u32) -> u32 {
-        debug_assert!(bitsize <= 32);
-        self.take_immediate(bitsize) as u32
-    }
-}
-
-impl<P: ArbitraryParameterProvider> ArbitraryGenerationContext<P> {
+impl ArbitraryGenerationContext {
     pub fn state(&self) -> &risico::State<PlacedBytes> {
         &self.state
     }
@@ -41,24 +24,24 @@ impl<P: ArbitraryParameterProvider> ArbitraryGenerationContext<P> {
         &mut self.state
     }
 
-    pub fn params(&self) -> &P {
+    pub fn params(&self) -> &RegisterRecencyList {
         &self.parameter_provider
     }
 
-    pub fn params_mut(&mut self) -> &mut P {
+    pub fn params_mut(&mut self) -> &mut RegisterRecencyList {
         &mut self.parameter_provider
     }
 }
 
 pub trait ArbitraryInstruction {
-    fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction;
+    fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction;
 }
 
 macro_rules! impl_regreg_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+            fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
                     ctx.params_mut().take_register_src(),
@@ -74,7 +57,7 @@ macro_rules! impl_regimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+            fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
                     ctx.params_mut().take_register_src(),
@@ -90,7 +73,7 @@ macro_rules! impl_shiftimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+            fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
                     ctx.params_mut().take_register_src(),
@@ -106,7 +89,7 @@ macro_rules! impl_reghighimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
         impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
-            fn take<P: ArbitraryParameterProvider>(ctx: &mut ArbitraryGenerationContext<P>) -> Instruction {
+            fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
                     ctx.params_mut().take_u32(20) << 12,
