@@ -321,11 +321,11 @@ macro_rules! bytes {
             }
 
             pub fn to_le_halfwords(self) -> [u16; 2] {
-                [(self.0 & 0xFF) as u16, self.0.wrapping_shr(16) as u16]
+                [(self.0 & 0xFFFF) as u16, self.0.wrapping_shr(16) as u16]
             }
 
             pub fn to_be_halfwords(self) -> [u16; 2] {
-                [self.0.wrapping_shr(16) as u16, (self.0 & 0xFF) as u16]
+                [self.0.wrapping_shr(16) as u16, (self.0 & 0xFFFF) as u16]
             }
 
             pub fn with_le_byte(self, index: usize, byte: u8) -> Self {
