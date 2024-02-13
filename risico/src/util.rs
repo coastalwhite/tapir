@@ -17,6 +17,10 @@ pub fn u32_to_usize(n: u32) -> usize {
     n as usize
 }
 
+pub fn is_signaling_nan(x: f32) -> bool {
+    rsoftfloat::f32::F32::from_f32(x).is_signaling_nan()
+}
+
 #[inline]
 pub const fn sign_extend(n: u32, num_bits: u32) -> i32 {
     (n << (31 - num_bits)) as i32 >> (31 - num_bits)

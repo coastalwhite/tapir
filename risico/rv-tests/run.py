@@ -144,9 +144,9 @@ def compile_asm(path: str, out: str):
     riscv_objcopy = subprocess.run(argv, capture_output = True)
     riscv_objcopy.check_returncode()
 
-def run_elf(root: str, path: str):
+def run_elf(root: str, path: str, syscalls = 'testing'):
     cli_bin = os.path.join(root, 'target', 'debug', 'cli')
-    argv = [cli_bin, "-S", "testing", path]
+    argv = [cli_bin, "-S", syscalls, path]
 
     log_info('cmd = ' + ' '.join(argv))
     risico = subprocess.run(argv, capture_output = True)
@@ -184,18 +184,58 @@ def find_all_with_ext(root: str, ext: str) -> list[str]:
 
     return output
 
+def find_all_unit_tests(
+    root: str,
+    category_whitelist: list[str],
+    tvm_whitelist: list[str]
+) -> list[tuple[str, str]]:
+    output = []
+
+    for (walkroot,_,files) in os.walk(root, topdown=True):
+        for file in files:
+            path = os.path.join(walkroot, file)
+
+            if not file.startswith('rv'):
+                continue
+
+            if file.endswith('.dump'):
+                continue
+
+            [category, tvm, name] = file.split('-', maxsplit=2)
+
+            if tvm not in tvm_whitelist:
+                continue
+
+            if category not in category_whitelist:
+                continue
+
+            output.append((file, path))
+
+    return output
 
 def find_project_dirs() -> dict[str, str]:
     TESTS_ROOT = os.path.dirname(os.path.realpath(__file__))
     PROJECT_ROOT = os.path.dirname(TESTS_ROOT)
+    RISCV_TESTS = os.getenv("RISCV_TESTS")
+
+    if RISCV_TESTS == None:
+        eprint('The environment variable $RISCV_TESTS is not set. Make sure to run within the devShell with `nix develop`')
+        exit(1)
 
     return dict(
         TESTS_ROOT = TESTS_ROOT,
         PROJECT_ROOT = PROJECT_ROOT,
+        RISCV_TESTS = RISCV_TESTS,
         OUTPUT = os.path.join(TESTS_ROOT, 'build'),
     )
 
 def main():
+    argv = sys.argv
+
+    FILTERS = None
+    if len(argv) > 1:
+       FILTERS = list(map(lambda s: s.strip(), argv[1:]))
+
     project_dirs = find_project_dirs()
 
     searches = {
@@ -242,6 +282,9 @@ def main():
     failed_compiles = 0
     for name, [tests, ext, cat_compile, _] in categories.items():
         for t in tests:
+            if FILTERS != None and not any([f in t for f in FILTERS]):
+                continue
+
             bin = os.path.join(project_dirs['OUTPUT'], name, t)
             src = t + '.' + ext
 
@@ -269,11 +312,18 @@ def main():
         log_error(f'Failed to compile {failed_compiles} tests...')
         exit(1)
 
+    num_tests = 0
+    num_ignored = 0
     failed_runs = 0
     for name, [tests, _, _, run] in categories.items():
         print()
         print(f"[{name}]:")
         for t in tests:
+            if FILTERS != None and not any([f in t for f in FILTERS]):
+                continue
+
+            num_tests += 1
+
             bin = os.path.join(project_dirs['OUTPUT'], name, t)
 
             try:
@@ -292,10 +342,61 @@ def main():
                 eprint(f"{t}: error. reason = {e}")
                 eprint(traceback.format_exc())
 
+    CATEGORY_WHITELIST = [
+        'rv32ui',
+        'rv32uf',
+    ]
+    TVM_WHITELIST = [
+        'p',
+    ]
+
+    IGNORED = [
+        'rv32ui-p-fence_i',
+    ]
+
+    print()
+    print(f"[riscv-tests unit tests]:")
+    unit_tests_path = os.path.join(project_dirs['RISCV_TESTS'], 'share', 'riscv-tests', 'isa')
+    unit_tests = find_all_unit_tests(unit_tests_path, CATEGORY_WHITELIST, TVM_WHITELIST)
+    for (file, path) in unit_tests:
+        if FILTERS != None and not any([f in file for f in FILTERS]):
+            continue
+
+        num_tests += 1
+
+        if file in IGNORED:
+            num_ignored += 1
+            print(f"{file}: ignored")
+            continue
+
+        try:
+            run_elf(project_dirs['PROJECT_ROOT'], path, syscalls='linux')
+            print(f"{file}: success")
+        except subprocess.CalledProcessError as e:
+            failed_runs += 1
+
+            NUM_DISPLAYED_LINES = 20
+
+            eprint(f"{file}: error. return code = {e.returncode} (test = {e.returncode >> 1})")
+            eprint('--- STDERR ---')
+            stderr = e.stderr.decode()
+            stderr_lines = stderr.splitlines()
+            if len(stderr_lines) > NUM_DISPLAYED_LINES:
+                eprint(f'({len(stderr_lines) - NUM_DISPLAYED_LINES} hidden lines)\n' + '\n'.join(stderr_lines[-NUM_DISPLAYED_LINES:]) + '\n', end='')
+            else:
+                eprint(stderr, end='')
+
+            eprint('--------------')
+        except Exception as e:
+            failed_runs += 1
+
+            eprint(f"{file}: error. reason = {e}")
+            eprint(traceback.format_exc())
+
     if failed_runs > 0:
         eprint()
-        total_tests = sum(map(lambda c: len(c[0]), categories.values()))
-        log_error(f'error: {failed_runs}/{total_tests} failed...')
+        log_error(f'error: {failed_runs}/{num_tests} failed...')
+        log_error(f'ignored: {num_ignored}/{num_tests}...')
         exit(1)
 
 if __name__ == '__main__':

@@ -14,7 +14,7 @@ use crate::driver::cache::CacheResult;
 use crate::memory::{BackingStore, MappedMemory};
 use crate::repr::{Addr, Offset, Size, Word};
 use crate::syscall::{SystemCallBehavior, SystemCallResult};
-use crate::util::sign_extend;
+use crate::util::{is_signaling_nan, sign_extend};
 
 #[repr(u8)]
 enum RoundingMode {
@@ -454,6 +454,13 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
+                eprintln!(
+                    "{} = 0x{:08x}, 0x{:03x}",
+                    u32::from(rs.as_u32() < args.imm().into()),
+                    rs.as_u32(),
+                    u32::from(args.imm())
+                );
+
                 self.registers
                     .set(rd, u32::from(rs.as_u32() < args.imm().into()));
             }
@@ -628,8 +635,12 @@ impl<M: BackingStore> State<M> {
                 let rs3 = F32::from_f32(rs3);
 
                 self.prepare_exception_flags();
-                let result = rs1.fused_mul_add(rs2, rs3, rm);
+                let mut result = rs1.fused_mul_add(rs2, rs3, rm);
                 self.store_exception_flags();
+
+                if result.is_nan() {
+                    result = F32::from_bits(0x7FC0_0000);
+                }
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
@@ -652,8 +663,12 @@ impl<M: BackingStore> State<M> {
                 let rs3 = F32::from_f32(rs3);
 
                 self.prepare_exception_flags();
-                let result = (rs1.neg()).fused_mul_add(rs2, rs3.neg(), rm);
+                let mut result = (rs1.neg()).fused_mul_add(rs2, rs3, rm);
                 self.store_exception_flags();
+
+                if result.is_nan() {
+                    result = F32::from_bits(0x7FC0_0000);
+                }
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
@@ -676,8 +691,12 @@ impl<M: BackingStore> State<M> {
                 let rs3 = F32::from_f32(rs3);
 
                 self.prepare_exception_flags();
-                let result = rs1.fused_mul_add(rs2, rs3.neg(), rm);
+                let mut result = rs1.fused_mul_add(rs2, rs3.neg(), rm);
                 self.store_exception_flags();
+
+                if result.is_nan() {
+                    result = F32::from_bits(0x7FC0_0000);
+                }
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
@@ -700,8 +719,12 @@ impl<M: BackingStore> State<M> {
                 let rs3 = F32::from_f32(rs3);
 
                 self.prepare_exception_flags();
-                let result = (rs1.neg()).fused_mul_add(rs2, rs3, rm);
+                let mut result = (rs1.neg()).fused_mul_add(rs2, rs3.neg(), rm);
                 self.store_exception_flags();
+
+                if result.is_nan() {
+                    result = F32::from_bits(0x7FC0_0000);
+                }
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
@@ -716,7 +739,7 @@ impl<M: BackingStore> State<M> {
 
                 let dest = rs1.as_addr().offset(imm);
 
-                self.memory.set(dest, rs2 as u32);
+                self.memory.set(dest, rs2.to_bits());
             }
             Flw(args) => {
                 let rd = args.rd();
@@ -728,7 +751,7 @@ impl<M: BackingStore> State<M> {
                 let src = rs1.as_addr().offset(imm);
                 let value = self.memory.get(src);
 
-                self.registers.set_freg(rd, value as f32);
+                self.registers.set_freg(rd, f32::from_bits(value));
             }
             FmulS(args) => {
                 let rm = args.rm();
@@ -783,17 +806,16 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                dbg!(rs1);
-                dbg!(rs2);
-
                 let rs1 = F32::from_f32(rs1);
                 let rs2 = F32::from_f32(rs2);
 
                 self.prepare_exception_flags();
-                let result = rs1.add(rs2, rm);
+                let mut result = rs1.add(rs2, rm);
                 self.store_exception_flags();
 
-                dbg!(f32::from_bits(result.to_bits()));
+                if result.is_nan() {
+                    result = F32::from_bits(0x7FC0_0000);
+                }
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
@@ -813,11 +835,14 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
 
                 self.prepare_exception_flags();
-                let result = rs1.sub(rs2, rm);
+                let mut result = rs1.sub(rs2, rm).to_bits();
                 self.store_exception_flags();
 
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                if rsoftfloat::f32::F32::from_bits(result).is_nan() {
+                    result = rsoftfloat::f32::F32::CANNONICAL_NAN.to_bits();
+                }
+
+                self.registers.set_freg(rd, f32::from_bits(result));
             }
             FltS(args) => {
                 let rd = args.rd();
@@ -827,7 +852,14 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                self.registers.set(rd, u32::from(rs1 < rs2));
+                let mut result = rs1 < rs2;
+
+                if rs1.is_nan() | rs2.is_nan() {
+                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
+                    result = false;
+                }
+
+                self.registers.set(rd, u32::from(result));
             }
             FminS(args) => {
                 let rd = args.rd();
@@ -837,7 +869,33 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                self.registers.set_freg(rd, f32::min(rs1, rs2));
+                let rs1 = rsoftfloat::f32::F32::from_f32(rs1);
+                let rs2 = rsoftfloat::f32::F32::from_f32(rs2);
+
+                let (result, flags) = rs1.min(rs2);
+                self.registers
+                    .csr
+                    .fcsr
+                    .set_flag(ExceptionFlags::from_bits(flags.as_u8()));
+                self.registers.set_freg(rd, result.to_f32());
+            }
+            FmaxS(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get_freg(rs1);
+                let rs2 = self.registers.get_freg(rs2);
+
+                let rs1 = rsoftfloat::f32::F32::from_f32(rs1);
+                let rs2 = rsoftfloat::f32::F32::from_f32(rs2);
+
+                let (result, flags) = rs1.max(rs2);
+                self.registers
+                    .csr
+                    .fcsr
+                    .set_flag(ExceptionFlags::from_bits(flags.as_u8()));
+                self.registers.set_freg(rd, result.to_f32());
             }
             FsgnjS(args) => {
                 let rd = args.rd();
@@ -879,17 +937,14 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                self.registers.set(rd, u32::from(rs1 <= rs2));
-            }
-            FmaxS(args) => {
-                let rd = args.rd();
-                let rs1 = args.rs1();
-                let rs2 = args.rs2();
+                let mut result = rs1 <= rs2;
 
-                let rs1 = self.registers.get_freg(rs1);
-                let rs2 = self.registers.get_freg(rs2);
+                if rs1.is_nan() | rs2.is_nan() {
+                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
+                    result = false;
+                }
 
-                self.registers.set_freg(rd, f32::max(rs1, rs2));
+                self.registers.set(rd, u32::from(result));
             }
             FeqS(args) => {
                 let rd = args.rd();
@@ -899,7 +954,14 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                self.registers.set(rd, u32::from(rs1 == rs2));
+                let rs1 = rsoftfloat::f32::F32::from_f32(rs1);
+                let rs2 = rsoftfloat::f32::F32::from_f32(rs2);
+
+                let (result, flags) = rs1.eq(rs2);
+                let flags = ExceptionFlags::from_bits(flags.as_u8());
+
+                self.registers.csr.fcsr.set_flag(flags);
+                self.registers.set(rd, u32::from(result));
             }
             FcvtSW(args) => {
                 let rm = args.rm();
@@ -924,12 +986,29 @@ impl<M: BackingStore> State<M> {
                 let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
-                let rs1 = F32::from_f32(rs1);
-                self.prepare_exception_flags();
-                let result = rs1.to_i32(rm, false);
-                self.store_exception_flags();
+
+                const F32_I32_MIN: f32 = i32::MIN as f32;
+                const F32_I32_MAX: f32 = i32::MAX as f32;
+
+                dbg!(rs1);
+                let result = if rs1 > F32_I32_MAX || rs1.is_nan() {
+                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
+                    i32::MAX
+                } else if rs1 < F32_I32_MIN {
+                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
+                    i32::MIN
+                } else {
+                    self.prepare_exception_flags();
+                    let rs1 = F32::from_f32(rs1);
+                    let result = rs1.to_i32(rm, true);
+                    self.store_exception_flags();
+                    result
+                };
+                dbg!(result);
 
                 self.registers.set(rd, result);
+                let ra = self.registers.get(XRegIdent::Ra).as_i32();
+                eprintln!("RA = {} (0x{:08x})", ra, ra);
             }
             FsqrtS(args) => {
                 let rm = args.rm();
@@ -942,8 +1021,12 @@ impl<M: BackingStore> State<M> {
                 let rs1 = F32::from_f32(rs1);
 
                 self.prepare_exception_flags();
-                let result = Float::sqrt(&rs1, rm);
+                let mut result = Float::sqrt(&rs1, rm);
                 self.store_exception_flags();
+
+                if result.is_nan() {
+                    result = F32::from_bits(0x7FC0_0000);
+                }
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
@@ -971,10 +1054,23 @@ impl<M: BackingStore> State<M> {
                 let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
-                let rs1 = F32::from_f32(rs1);
-                self.prepare_exception_flags();
-                let result = rs1.to_u32(rm, false);
-                self.store_exception_flags();
+                let result = if rs1 > u32::MAX as f32 {
+                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
+                    u32::MAX
+                } else if rs1 < 0. {
+                    if rs1 > -1.0 {
+                        self.registers.csr.fcsr.set_flag(ExceptionFlags::INEXACT);
+                    } else {
+                        self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
+                    }
+                    0
+                } else {
+                    let rs1 = F32::from_f32(rs1);
+                    self.prepare_exception_flags();
+                    let result = rs1.to_u32(rm, true);
+                    self.store_exception_flags();
+                    result
+                };
 
                 self.registers.set(rd, result);
             }
@@ -994,8 +1090,8 @@ impl<M: BackingStore> State<M> {
                     f if f.is_subnormal() && f.is_sign_positive() => 1 << 5,
                     f if f.is_normal() && f.is_sign_positive() => 1 << 6,
                     f if f.is_infinite() && f.is_sign_positive() => 1 << 7,
-                    _ if bits & 0x7FC0_0000 == 0x7F80_0000  => 1 << 8,
-                    _ if bits & 0x7FC0_0000 == 0x7FC0_0000  => 1 << 9,
+                    _ if bits & 0x7FC0_0000 == 0x7F80_0000 => 1 << 8,
+                    _ if bits & 0x7FC0_0000 == 0x7FC0_0000 => 1 << 9,
                     _ => unreachable!(),
                 };
 
@@ -1102,7 +1198,7 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let Ok(value) = self.registers.csr.update(csr, |v| v & !u32::from(uimm)) else {
+                let Ok(value) = self.registers.csr.update(csr, |v| v | u32::from(uimm)) else {
                     if self.abort_on_missing_csr {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRSI] Missing CSR: {csr} (0x{csr:03x}) ");
@@ -1118,7 +1214,7 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let Ok(value) = self.registers.csr.update(csr, |v| v | !u32::from(uimm)) else {
+                let Ok(value) = self.registers.csr.update(csr, |v| v & !u32::from(uimm)) else {
                     if self.abort_on_missing_csr {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRCI] Missing CSR: {csr} (0x{csr:03x}) ");
@@ -1156,48 +1252,47 @@ impl<M: BackingStore> State<M> {
             FenceI(_) => {}
             MRet(_) => {
                 next_pc = Addr::from(self.registers.csr.mepc.read());
-            }
-            // Environment(variant) => {
-            //     self.instruction_counter += 1;
-            //     match variant {
-            //         EnvironmentVariant::Call => {
-            //             match self
-            //                 .syscall_behavior
-            //                 .handle(&mut self.registers, &mut self.memory)
-            //             {
-            //                 SystemCallResult::Return(_) => {}
-            //                 SystemCallResult::Exit(error_code) => {
-            //                     std::process::exit(error_code);
-            //                 }
-            //                 SystemCallResult::Abort => {
-            //                     println!("Process Aborted through System Call.");
-            //                     std::process::exit(1);
-            //                 }
-            //                 SystemCallResult::InvalidSystemCallNr => {
-            //                     println!("Invalid System Call was called.");
-            //                     std::process::exit(1);
-            //                 }
-            //             }
-            //         }
-            //         EnvironmentVariant::Break => self.environment_break(),
-            //     }
-            // }
-            // CsrRegister(args) => {
-            //     self.instruction_counter += 1;
-            //
-            //     match args.csr {
-            //         // RDCYCLE
-            //         3072 => {
-            //             self.registers.set(args.rd, self.instruction_counter as u32);
-            //         }
-            //         _ => unimplemented!(),
-            //     }
-            // }
-            // CsrImmediate(_args) => {
-            //     self.instruction_counter += 1;
-            //
-            //     todo!()
-            // }
+            } // Environment(variant) => {
+              //     self.instruction_counter += 1;
+              //     match variant {
+              //         EnvironmentVariant::Call => {
+              //             match self
+              //                 .syscall_behavior
+              //                 .handle(&mut self.registers, &mut self.memory)
+              //             {
+              //                 SystemCallResult::Return(_) => {}
+              //                 SystemCallResult::Exit(error_code) => {
+              //                     std::process::exit(error_code);
+              //                 }
+              //                 SystemCallResult::Abort => {
+              //                     println!("Process Aborted through System Call.");
+              //                     std::process::exit(1);
+              //                 }
+              //                 SystemCallResult::InvalidSystemCallNr => {
+              //                     println!("Invalid System Call was called.");
+              //                     std::process::exit(1);
+              //                 }
+              //             }
+              //         }
+              //         EnvironmentVariant::Break => self.environment_break(),
+              //     }
+              // }
+              // CsrRegister(args) => {
+              //     self.instruction_counter += 1;
+              //
+              //     match args.csr {
+              //         // RDCYCLE
+              //         3072 => {
+              //             self.registers.set(args.rd, self.instruction_counter as u32);
+              //         }
+              //         _ => unimplemented!(),
+              //     }
+              // }
+              // CsrImmediate(_args) => {
+              //     self.instruction_counter += 1;
+              //
+              //     todo!()
+              // }
         };
 
         self.registers.pc = next_pc;

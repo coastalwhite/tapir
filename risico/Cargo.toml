@@ -10,6 +10,7 @@ serde = { version = "1.0.152", features = ["derive"] }
 toml = "^0.7"
 
 rvisa.path = "../rvisa"
+rsoftfloat.path = "../rsoftfloat"
 rvhwfuzzer-encoding.path = "../instr-encoding"
 softfloat-wrapper = "0.3.4"
 

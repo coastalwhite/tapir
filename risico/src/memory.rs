@@ -25,7 +25,7 @@ impl PlacedBytes {
     pub fn end(&self) -> Addr {
         self.start.offset(self.bytes().len() as i32)
     }
-    
+
     pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
     }
@@ -280,55 +280,93 @@ impl MappedMemoryBuilder {
 
 impl BackingStore for DynamicDataArray {
     fn get(&self, at: Addr) -> u32 {
-        if Word::from(at).as_u32() >= self.size {
-            panic!("Out of range");
+        if at.is_word_aligned() {
+            if Word::from(at).as_u32() >= self.size {
+                panic!("Out of range");
+            }
+
+            let block_index = Self::block_index(at);
+            return if let Some(block) = self.data.get(&block_index) {
+                block[Self::block_offset(at)]
+            } else {
+                0
+            };
         }
 
-        let block_index = Self::block_index(at);
-        if let Some(block) = self.data.get(&block_index) {
-            block[Self::block_offset(at)]
-        } else {
-            0
-        }
+        u32::from_le_bytes([
+            self.get_byte(at.offset(0)),
+            self.get_byte(at.offset(1)),
+            self.get_byte(at.offset(2)),
+            self.get_byte(at.offset(3)),
+        ])
     }
 
     fn set(&mut self, at: Addr, word: u32) {
-        if Word::from(at).as_u32() >= self.size {
-            panic!("Out of range");
+        if at.is_word_aligned() {
+            if Word::from(at).as_u32() >= self.size {
+                panic!("Out of range");
+            }
+
+            let block_index = Self::block_index(at);
+            let block_offset = Self::block_offset(at);
+
+            let block = self
+                .data
+                .entry(block_index)
+                .or_insert([0; Self::ALLOC_SIZE]);
+            block[block_offset] = word;
+            return;
         }
 
-        let block_index = Self::block_index(at);
-        let block_offset = Self::block_offset(at);
+        let [b0, b1, b2, b3] = word.to_le_bytes();
 
-        let block = self
-            .data
-            .entry(block_index)
-            .or_insert([0; Self::ALLOC_SIZE]);
-        block[block_offset] = word;
+        self.set_byte(at.offset(0), b0);
+        self.set_byte(at.offset(1), b1);
+        self.set_byte(at.offset(2), b2);
+        self.set_byte(at.offset(3), b3);
     }
 }
 
 impl BackingStore for StaticDataArray {
     fn get(&self, at: Addr) -> u32 {
-        let at = u32_to_usize(Word::from(at).as_u32());
-        match self.data.get(at / 4) {
-            Some(word) => *word,
-            None => {
-                eprintln!("ERROR: Out of range read of static array (size = 0x{:08x}, read addr = 0x{:08x}).", self.data.len(), at / 4);
-                std::process::exit(1);
-            }
+        if at.is_word_aligned() {
+            let at = u32_to_usize(Word::from(at).as_u32());
+            return match self.data.get(at / 4) {
+                Some(word) => *word,
+                None => {
+                    eprintln!("ERROR: Out of range read of static array (size = 0x{:08x}, read addr = 0x{:08x}).", self.data.len(), at / 4);
+                    std::process::exit(1);
+                }
+            };
         }
+
+        u32::from_le_bytes([
+            self.get_byte(at.offset(0)),
+            self.get_byte(at.offset(1)),
+            self.get_byte(at.offset(2)),
+            self.get_byte(at.offset(3)),
+        ])
     }
 
     fn set(&mut self, at: Addr, word: u32) {
-        let at = u32_to_usize(Word::from(at).as_u32());
-        match self.data.get_mut(at / 4) {
-            Some(dword) => *dword = word,
-            None => {
-                eprintln!("ERROR: Out of range write of static array (size = 0x{:08x}, write addr = 0x{:08x}, value = 0x{word:08x}).", self.data.len(), at / 4);
-                std::process::exit(1);
+        if at.is_word_aligned() {
+            let at = u32_to_usize(Word::from(at).as_u32());
+            match self.data.get_mut(at / 4) {
+                Some(dword) => *dword = word,
+                None => {
+                    eprintln!("ERROR: Out of range write of static array (size = 0x{:08x}, write addr = 0x{:08x}, value = 0x{word:08x}).", self.data.len(), at / 4);
+                    std::process::exit(1);
+                }
             }
+            return;
         }
+
+        let [b0, b1, b2, b3] = word.to_le_bytes();
+
+        self.set_byte(at.offset(0), b0);
+        self.set_byte(at.offset(1), b1);
+        self.set_byte(at.offset(2), b2);
+        self.set_byte(at.offset(3), b3);
     }
 }
 
@@ -501,51 +539,55 @@ pub trait BackingStore {
 
     fn get_byte(&self, at: Addr) -> u8 {
         let word = self.get(at.word_align());
-        let byte = word >> (at.word_offset() * 8);
-        let byte = (byte & 0xFF) as u8;
-        byte
+        word.to_le_bytes()[at.word_offset() as usize]
     }
 
     fn set_byte(&mut self, at: Addr, byte: u8) {
         let word = self.get(at.word_align());
-        let word_offset = at.word_offset();
-        let mask = 0xFF << (word_offset * 8);
+        let mut bytes = word.to_le_bytes();
 
-        self.set(
-            at.word_align(),
-            (word & !mask) | ((byte as u32) << (word_offset * 8)),
-        );
+        bytes[at.word_offset() as usize] = byte;
+
+        self.set(at.word_align(), u32::from_le_bytes(bytes));
     }
 
     fn get_halfword(&self, at: Addr) -> u16 {
         let word_addr = Word::from(at).as_u32();
-        if word_addr & 0x1 != 0 {
-            panic!("Misaligned access");
+        if word_addr & 0x1 == 0 {
+            let word = self.get(at.word_align());
+
+            return if word_addr & 0x2 != 0 {
+                ((word & 0xFFFF_0000) >> 16) as u16
+            } else {
+                (word & 0x0000_FFFF) as u16
+            };
         }
 
-        let word = self.get(at.word_align());
-
-        if word_addr & 0x2 != 0 {
-            ((word & 0xFFFF_0000) >> 16) as u16
-        } else {
-            (word & 0x0000_FFFF) as u16
-        }
+        u16::from_le_bytes([self.get_byte(at.offset(0)), self.get_byte(at.offset(1))])
     }
 
     fn set_halfword(&mut self, at: Addr, halfword: u16) {
-        let word_addr = Word::from(at).as_u32();
-        if word_addr & 0x1 != 0 {
-            panic!("Misaligned access");
-        }
-
         let word = self.get(at.word_align());
-        if word_addr & 0x2 != 0 {
-            self.set(at.word_align(), (word & 0xFFFF_0000) | u32::from(halfword));
-        } else {
-            self.set(
+        match at.word_offset() {
+            0b00 => self.set(
                 at.word_align(),
-                (word & 0x0000_FFFF) | (u32::from(halfword) << 16),
-            );
+                (word & 0xFFFF_0000) | (u32::from(halfword.to_le()) << 00),
+            ),
+            0b01 => self.set(
+                at.word_align(),
+                (word & 0xFF00_00FF) | (u32::from(halfword.to_le()) << 08),
+            ),
+            0b10 => self.set(
+                at.word_align(),
+                (word & 0x0000_FFFF) | (u32::from(halfword.to_le()) << 16),
+            ),
+            0b11 => {
+                let [b0, b1] = halfword.to_le_bytes();
+
+                self.set_byte(at.offset(0), b0);
+                self.set_byte(at.offset(1), b1);
+            }
+            _ => unreachable!(),
         }
     }
 }

@@ -275,8 +275,8 @@ macro_rules! field_type {
     (shamt) => { u8 };
     (csr) => { CsrIndex };
     (uimm: csr) => { u8 };
-    (imm: itype_unsigned) => { u16 };
-    (imm: itype_signed) => { i16 };
+    (imm: itype_unsigned) => { u32 };
+    (imm: itype_signed) => { i32 };
     (imm: stype) => { i16 };
     (imm: btype) => { i16 };
     (imm: jtype) => { i32 };
@@ -348,8 +348,8 @@ macro_rules! field_decode {
     ($bs:expr, shamt)               => { (($bs >> 20) & 0x1F) as u8 };
     ($bs:expr, csr)                 => { CsrIndex(($bs >> 20) as u16) };
     ($bs:expr, uimm: csr)           => { (($bs >> 15) & 0x1F) as u8 };
-    ($bs:expr, imm: itype_unsigned) => { ($bs >> 20) as u16 };
-    ($bs:expr, imm: itype_signed)   => { ((($bs & 0xFFF0_0000) as i32) >> 20) as i16 };
+    ($bs:expr, imm: itype_unsigned) => { ((($bs & 0xFFF0_0000) as i32) >> 20) as u32 };
+    ($bs:expr, imm: itype_signed)   => { ((($bs & 0xFFF0_0000) as i32) >> 20) as i32 };
     ($bs:expr, imm: stype)          => { ((($bs & 0xFE00_0000) as i32) >> 20) as i16 | (($bs >> 7) & 0x1F) as i16 };
     ($bs:expr, imm: btype)          => {{
             // Not straight forward because we need to sign extend
@@ -1048,9 +1048,9 @@ asm_display! {
     Lbu   ("{},{}({})", i.rd(), i.imm(), i.rs1()),
     Lhu   ("{},{}({})", i.rd(), i.imm(), i.rs1()),
 
-    Sb    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
-    Sh    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
-    Sw    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
+    Sb    ("{},{}({})", i.rs2(), i.imm(), i.rs1()),
+    Sh    ("{},{}({})", i.rs2(), i.imm(), i.rs1()),
+    Sw    ("{},{}({})", i.rs2(), i.imm(), i.rs1()),
 
     Addi  ("{},{},{}", i.rd(), i.rs1(), i.imm()),
     Slti  ("{},{},{}", i.rd(), i.rs1(), i.imm()),

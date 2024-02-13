@@ -8,6 +8,19 @@ pub struct Fcsr {
 #[derive(Clone, Copy)]
 pub struct ExceptionFlags(u8);
 
+impl std::fmt::Debug for ExceptionFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExceptionFlags")
+            .field("inexact", &self.contains(Self::INEXACT))
+            .field("underflow", &self.contains(Self::UNDERFLOW))
+            .field("overflow", &self.contains(Self::OVERFLOW))
+            .field("divide_by_zero", &self.contains(Self::DIVIDE_BY_ZERO))
+            .field("invalid", &self.contains(Self::INVALID))
+            .field("raw_bits", &self.0)
+            .finish()
+    }
+}
+
 impl ExceptionFlags {
     pub const INVALID: Self = Self(0b10000);
     pub const DIVIDE_BY_ZERO: Self = Self(0b01000);
@@ -50,20 +63,20 @@ impl From<::softfloat_wrapper::ExceptionFlags> for ExceptionFlags {
 
         // @Hack. What is this. This should just be a bit cast.
         if value.is_invalid() {
-            flags |= Self::INVALID
-        };
+            flags |= Self::INVALID;
+        }
         if value.is_infinite() {
-            flags |= Self::DIVIDE_BY_ZERO
-        };
+            flags |= Self::DIVIDE_BY_ZERO;
+        }
         if value.is_overflow() {
-            flags |= Self::OVERFLOW
-        };
+            flags |= Self::OVERFLOW;
+        }
         if value.is_underflow() {
-            flags |= Self::UNDERFLOW
-        };
+            flags |= Self::UNDERFLOW;
+        }
         if value.is_inexact() {
-            flags |= Self::INEXACT
-        };
+            flags |= Self::INEXACT;
+        }
 
         flags
     }
@@ -93,6 +106,10 @@ impl Fcsr {
 
     pub fn set_fflags(&mut self, flags: ExceptionFlags) {
         self.fflags_write(flags.to_bits().into())
+    }
+
+    pub fn set_flag(&mut self, flag: ExceptionFlags) {
+        self.set_fflags(self.get_fflags() | flag)
     }
 
     pub fn fflags_read(&self) -> u32 {

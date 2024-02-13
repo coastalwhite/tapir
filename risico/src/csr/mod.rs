@@ -44,8 +44,8 @@ macro_rules! csrs {
                         let mut rv = Err(CsrError::ReadonlyRegister);
 
                         $(
-                            self.$field.$write(value);
                             rv = Ok(self.$field.$read());
+                            self.$field.$write(value);
                         )?
 
                         rv
@@ -64,8 +64,8 @@ macro_rules! csrs {
 
                         $(
                             let value = self.$field.$read();
+                            rv = Ok(value);
                             self.$field.$write(f(value));
-                            rv = Ok(self.$field.$read());
                         )?
 
                         rv
