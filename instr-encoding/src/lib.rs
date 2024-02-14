@@ -1,6 +1,8 @@
 use std::fmt::Display;
 use std::io;
 
+#[macro_use]
+mod fragmented;
 mod fence_order;
 mod register;
 
@@ -13,9 +15,9 @@ impl std::fmt::Debug for UpperHex {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CsrIndex(pub u16);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FenceMode(pub u8);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -78,7 +80,7 @@ impl Display for CsrIndex {
 }
 
 pub use fence_order::FenceOrder;
-pub use register::{FRegIdent, XRegIdent};
+pub use register::{CFRegIdent, CXRegIdent, FRegIdent, XRegIdent};
 
 #[inline(always)]
 const fn funct3(bits: u32) -> u32 {
@@ -169,6 +171,61 @@ macro_rules! format_enable {
             $( | { $imm20_1; 0xFFFF_Fu32 << 12 } )?
             $( | { $rd     ; 0b1111_1u32 << 07 } )?
     };
+
+    (
+        ci
+        $(, funct3 = $funct3:literal   )?
+        $(, imm_h  = $imm_h:literal    )?
+        $(, rd_rs1 = $rd_rs1:literal   )?
+        $(, imm_l  = $imm_l:literal    )?
+    ) => {
+        0u32
+            $( | { $funct3; 0b111 << 13 } )?
+            $( | { $imm_h ; 0b001 << 12 } )?
+            $( | { $rd_rs1; 0x01F << 07 } )?
+            $( | { $imm_l ; 0x01F << 02 } )?
+    };
+    (
+        ciw
+        $(, funct3 = $funct3:literal   )?
+        $(, imm    = $imm:literal      )?
+        $(, rd     = $rd:literal   )?
+    ) => {
+        0u32
+            $( | { $funct3; 0b111 << 13 } )?
+            $( | { $imm   ; 0x0FF << 05 } )?
+            $( | { $rd    ; 0b111 << 02 } )?
+    };
+    (
+        cl
+        $(, funct3 = $funct3:literal   )?
+        $(, imm_h  = $imm_h:literal    )?
+        $(, rs1    = $rs1:literal      )?
+        $(, imm_l  = $imm_l:literal    )?
+        $(, rd     = $rd:literal       )?
+    ) => {
+        0u32
+            $( | { $funct3; 0b111 << 13 } )?
+            $( | { $imm_h ; 0b111 << 10 } )?
+            $( | { $rs1   ; 0b111 << 07 } )?
+            $( | { $imm_l ; 0b011 << 05 } )?
+            $( | { $rd    ; 0b111 << 02 } )?
+    };
+    (
+        cs
+        $(, funct3 = $funct3:literal   )?
+        $(, imm_h  = $imm_h:literal    )?
+        $(, rs1    = $rs1:literal      )?
+        $(, imm_l  = $imm_l:literal    )?
+        $(, rs2    = $rs2:literal      )?
+    ) => {
+        0u32
+            $( | { $funct3; 0b111 << 13 } )?
+            $( | { $imm_h ; 0b111 << 10 } )?
+            $( | { $rs1   ; 0b111 << 07 } )?
+            $( | { $imm_l ; 0b011 << 05 } )?
+            $( | { $rs2   ; 0b111 << 02 } )?
+    };
 }
 
 macro_rules! format_mask {
@@ -250,40 +307,162 @@ macro_rules! format_mask {
             $( | compile_error!($imm20_1); )?
             $( | { const RD:       u32 = $rd      ; RD       << 07 } )?
     };
+
+    (
+        cr
+        $(, funct4 = $funct4:literal   )?
+        $(, rd_rs1 = $rd_rs1:literal   )?
+        $(, rs2    = $rs2:literal      )?
+    ) => {
+        0u32
+            $( | { const FUNCT4: u32 = $funct4; FUNCT4 << 12 } )?
+            $( | { const RD_RS1: u32 = $rd_rs1; RD_RS1 << 07 } )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 02 } )?
+    };
+    (
+        ci
+        $(, funct3 = $funct3:literal   )?
+        $(, imm_h  = $imm_h:literal    )?
+        $(, rd_rs1 = $rd_rs1:literal   )?
+        $(, imm_l  = $imm_l:literal    )?
+    ) => {
+        0u32
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 13 } )?
+            $( | { const IMM_H:  u32 = $imm_h ; IMM_H  << 12 } )?
+            $( | { const RD_RS1: u32 = $rd_rs1; RD_RS1 << 07 } )?
+            $( | { const IMM_L:  u32 = $imm_l ; IMM_L  << 02 } )?
+    };
+    (
+        css
+        $(, funct3 = $funct3:literal   )?
+        $(, imm    = $imm:literal      )?
+        $(, rs2    = $rs2:literal   )?
+    ) => {
+        0u32
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 13 } )?
+            $( | { const IMM:    u32 = $imm   ; IMM    << 07 } )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 02 } )?
+    };
+    (
+        ciw
+        $(, funct3 = $funct3:literal   )?
+        $(, imm    = $imm:literal      )?
+        $(, rd     = $rd:literal   )?
+    ) => {
+        0u32
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 13 } )?
+            $( | { const IMM:    u32 = $imm   ; IMM    << 05 } )?
+            $( | { const RD:     u32 = $rd    ; RD     << 02 } )?
+    };
+    (
+        cl
+        $(, funct3 = $funct3:literal   )?
+        $(, imm_h  = $imm_h:literal    )?
+        $(, rs1    = $rs1:literal      )?
+        $(, imm_l  = $imm_l:literal    )?
+        $(, rd     = $rd:literal       )?
+    ) => {
+        0u32
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 13 } )?
+            $( | { const IMM_H:  u32 = $imm_h ; IMM_H  << 10 } )?
+            $( | { const RS1:    u32 = $rs1   ; RS1    << 07 } )?
+            $( | { const IMM_L:  u32 = $imm_l ; IMM_L  << 05 } )?
+            $( | { const RD:     u32 = $rd    ; RD     << 02 } )?
+    };
+    (
+        cs
+        $(, funct3 = $funct3:literal   )?
+        $(, imm_h  = $imm_h:literal    )?
+        $(, rs1    = $rs1:literal      )?
+        $(, imm_l  = $imm_l:literal    )?
+        $(, rs2    = $rs2:literal      )?
+    ) => {
+        0u32
+            $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 13 } )?
+            $( | { const IMM_H:  u32 = $imm_h ; IMM_H  << 10 } )?
+            $( | { const RS1:    u32 = $rs1   ; RS1    << 07 } )?
+            $( | { const IMM_L:  u32 = $imm_l ; IMM_L  << 05 } )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 02 } )?
+    };
+    (
+        ca
+        $(, funct6 = $funct6:literal   )?
+        $(, rd_rs1 = $rd_rs1:literal    )?
+        $(, funct2 = $funct2:literal   )?
+        $(, rs2    = $rs2:literal      )?
+    ) => {
+        0u32
+            $( | { const FUNCT6: u32 = $funct6; FUNCT6 << 10 } )?
+            $( | { const RD_RS1: u32 = $rd_rs1; RD_RS1 << 07 } )?
+            $( | { const FUNCT2: u32 = $funct2; FUNCT2 << 05 } )?
+            $( | { const RS2:    u32 = $rs2   ; RS2    << 02 } )?
+    };
+    (
+        cb
+        $(, funct3   = $funct3:literal   )?
+        $(, offset_h = $offset_h:literal )?
+        $(, rd_rs1   = $rd_rs1:literal   )?
+        $(, offset_l = $offset_l:literal )?
+    ) => {
+        0u32
+            $( | { const FUNCT3:    u32 = $funct3   ; FUNCT3    << 13 } )?
+            $( | { const OFFSET_H:  u32 = $offset_h ; OFFSET_H  << 10 } )?
+            $( | { const RD_RS1:    u32 = $rd_rs1   ; RD_RS1    << 07 } )?
+            $( | { const OFFSET_L:  u32 = $offset_l ; OFFSET_L  << 02 } )?
+    };
+    (
+        cj
+        $(, funct3      = $funct3:literal      )?
+        $(, jump_target = $jump_target:literal )?
+    ) => {
+        0u32
+            $( | { const FUNCT3:      u32 = $funct3     ; FUNCT3      << 13 } )?
+            $( | { const JUMP_TARGET: u32 = $jump_target; JUMP_TARGET << 02 } )?
+    };
 }
 
 #[rustfmt::skip]
 macro_rules! format_num_bytes {
-    (r) => { 4 };
-    (i) => { 4 };
-    (s) => { 4 };
-    (b) => { 4 };
-    (u) => { 4 };
-    (j) => { 4 };
+    (r) =>   { 4 };
+    (i) =>   { 4 };
+    (s) =>   { 4 };
+    (b) =>   { 4 };
+    (u) =>   { 4 };
+    (j) =>   { 4 };
+
+    (cr) =>  { 2 };
+    (ci) =>  { 2 };
+    (css) => { 2 };
+    (ciw) => { 2 };
+    (cl) =>  { 2 };
+    (cs) =>  { 2 };
+    (ca) =>  { 2 };
+    (cb) =>  { 2 };
+    (cj) =>  { 2 };
 }
 
 #[rustfmt::skip]
 macro_rules! field_type {
-    (rd: freg) => { FRegIdent };
-    (rs1: freg) => { FRegIdent };
-    (rs2: freg) => { FRegIdent };
-    (rs3: freg) => { FRegIdent };
-    (rm) => { RoundingMode };
-    (rd:  xreg) => { XRegIdent };
-    (rs1: xreg) => { XRegIdent };
-    (rs2: xreg) => { XRegIdent };
-    (shamt) => { u8 };
-    (csr) => { CsrIndex };
-    (uimm: csr) => { u8 };
+    ($i:ident: freg )     => { FRegIdent };
+    ($i:ident: cfreg )    => { CFRegIdent };
+    (rm)                  => { RoundingMode };
+    ($i:ident: cxreg )    => { CXRegIdent };
+    ($i:ident:   xreg)    => { XRegIdent };
+    (shamt)               => { u8 };
+    (csr)                 => { CsrIndex };
+    (uimm: csr)           => { u8 };
     (imm: itype_unsigned) => { u32 };
-    (imm: itype_signed) => { i32 };
-    (imm: stype) => { i16 };
-    (imm: btype) => { i16 };
-    (imm: jtype) => { i32 };
-    (imm: utype) => { u32 };
-    (fm) => { FenceMode };
-    (pred) => { FenceOrder };
-    (succ) => { FenceOrder };
+    (imm: itype_signed)   => { i32 };
+    (imm: stype)          => { i16 };
+    (imm: btype)          => { i16 };
+    (imm: jtype)          => { i32 };
+    (imm: utype)          => { u32 };
+    (imm: cnzuimm)        => { u32 };
+    (imm: cnzimm5_0)      => { i8  };
+    (imm: cuimm6_2)       => { u8  };
+    (fm)                  => { FenceMode };
+    (pred)                => { FenceOrder };
+    (succ)                => { FenceOrder };
 }
 
 #[rustfmt::skip]
@@ -292,10 +471,22 @@ macro_rules! field_encode {
     ($v:ident, rs1: freg) =>           { ($v as u32) << 15 };
     ($v:ident, rs2: freg) =>           { ($v as u32) << 20 };
     ($v:ident, rs3: freg) =>           { ($v as u32) << 27 };
-    ($v:ident, rm) =>                  { ($v as u32) << 12 };
+
+    ($v:ident, rd: cfreg) =>           { ($v as u32) << 2  };
+    ($v:ident, rs2: cfreg) =>          { ($v as u32) << 2  };
+
     ($v:ident, rd: xreg) =>            { ($v as u32) << 7 };
     ($v:ident, rs1: xreg) =>           { ($v as u32) << 15 };
     ($v:ident, rs2: xreg) =>           { ($v as u32) << 20 };
+    ($v:ident, rd_rs1: xreg) =>        { ($v as u32) << 7  };
+
+    ($v:ident, rd: cxreg) =>           { ($v as u32) << 2  };
+    ($v:ident, rs2: cxreg) =>          { ($v as u32) << 2  };
+    ($v:ident, rs1: cxreg) =>          { ($v as u32) << 7  };
+    ($v:ident, rd_rs1: cxreg) =>       { ($v as u32) << 7  };
+
+    ($v:ident, rm) =>                  { ($v as u32) << 12 };
+
     ($v:ident, shamt) =>               { ($v as u32) << 20 };
     ($v:ident, csr) =>                 { ($v.0 as u32) << 20 };
     ($v:ident, uimm: csr) =>           { ($v as u32) << 15 };
@@ -329,7 +520,10 @@ macro_rules! field_encode {
         (imm19_12 << (12 - 12)) |
         (imm20    << (31 - 20))
     }};
-    ($v:ident, imm: utype) => { $v & 0xFFFF_F000 };
+    ($v:ident, imm: utype) => { encode_fragmented!($v, 31:12; 12) };
+    ($v:ident, imm: cnzuimm) => { encode_fragmented!($v, 10:7,12:11,5,6; 2) };
+    ($v:ident, imm: cnzimm5_0) => { encode_fragmented!($v, 12,6:2; 0) };
+    ($v:ident, imm: cuimm6_2)  => { encode_fragmented!($v, 5,12:10,6; 2) };
     ($v:ident, fm) => { ($v.0 as u32) << 28 };
     ($v:ident, pred) => { ($v.encode() as u32) << 24 };
     ($v:ident, succ) => { ($v.encode() as u32) << 20 };
@@ -341,10 +535,23 @@ macro_rules! field_decode {
     ($bs:expr, rs1: freg)           => { FRegIdent::take_masked($bs >> 15) };
     ($bs:expr, rs2: freg)           => { FRegIdent::take_masked($bs >> 20) };
     ($bs:expr, rs3: freg)           => { FRegIdent::take_masked($bs >> 27) };
-    ($bs:expr, rm)                  => { RoundingMode::take_masked($bs >> 12) };
+
+    ($bs:expr, rd: cfreg)           => { CFRegIdent::take_masked($bs >> 2) };
+    ($bs:expr, rs2: cfreg)          => { CFRegIdent::take_masked($bs >> 2) };
+
     ($bs:expr, rd: xreg)            => { XRegIdent::take_masked($bs >> 7) };
     ($bs:expr, rs1: xreg)           => { XRegIdent::take_masked($bs >> 15) };
     ($bs:expr, rs2: xreg)           => { XRegIdent::take_masked($bs >> 20) };
+    ($bs:expr, rd_rs1: xreg)        => { XRegIdent::take_masked($bs >> 7) };
+
+    ($bs:expr, rd: cxreg)           => { CXRegIdent::take_masked($bs >> 2) };
+    ($bs:expr, rs2: cxreg)          => { CXRegIdent::take_masked($bs >> 2) };
+    ($bs:expr, rs1: cxreg)          => { CXRegIdent::take_masked($bs >> 7) };
+    ($bs:expr, rd_rs1: cxreg)       => { CXRegIdent::take_masked($bs >> 7) };
+
+    ($bs:expr, rm)                  => { RoundingMode::take_masked($bs >> 12) };
+
+
     ($bs:expr, shamt)               => { (($bs >> 20) & 0x1F) as u8 };
     ($bs:expr, csr)                 => { CsrIndex(($bs >> 20) as u16) };
     ($bs:expr, uimm: csr)           => { (($bs >> 15) & 0x1F) as u8 };
@@ -381,7 +588,10 @@ macro_rules! field_decode {
 
         imm
     }};
-    ($bs:expr, imm: utype) => { $bs & 0xFFFF_F000 };
+    ($bs:expr, imm: utype) => { decode_unsigned_fragmented!($bs, 31:12; 12) };
+    ($bs:expr, imm: cnzuimm) => { decode_unsigned_fragmented!($bs, 10:7,12:11,5,6; 2) };
+    ($bs:expr, imm: cnzimm5_0) => { decode_signed_fragmented!($bs, 12,6:2; 0) as i8 };
+    ($bs:expr, imm: cuimm6_2) => { decode_unsigned_fragmented!($bs, 5,12:10,6; 2) as u8 };
     ($bs:expr, fm) => { FenceMode((($bs >> 28) & 0xF) as u8) };
     ($bs:expr, pred) => { FenceOrder::take_masked($bs >> 24) };
     ($bs:expr, succ) => { FenceOrder::take_masked($bs >> 20) };
@@ -452,7 +662,7 @@ macro_rules! instructions {
             pub const MNEMONIC: &'static str = $mnemonic;
 
             const ENABLE: u32 = format_enable!($format$(, $field = $value)*) | $opcode;
-            const MASK: u32 = format_mask!($format$(, $field = $value)*) | $opcode;
+            const MASK:   u32 = format_mask!  ($format$(, $field = $value)*) | $opcode;
 
             #[inline]
             pub fn new($($method_ident: field_type!($method_ident$(: $method_extra)?)),*) -> Self {
@@ -462,7 +672,7 @@ macro_rules! instructions {
                 bits |= field_encode!($method_ident, $method_ident$(: $method_extra)?);
                 )*
 
-                debug_assert!(bits & Self::ENABLE == 0);
+                debug_assert!(bits & Self::ENABLE == 0, concat!("Mask bits enabled for ", stringify!($name)));
 
                 bits |= Self::MASK;
 
@@ -503,6 +713,29 @@ macro_rules! instructions {
             )*
         }
         )+
+
+        #[cfg(test)]
+        #[test]
+        fn encode() {
+            use tests::TestArbitrary;
+            $(
+            let instance = $name::new($(<field_type!($method_ident$(: $method_extra)?)>::test_arbitrary()),*);
+            let encoded = instance.encode_as_u32();
+            assert!($name::matches(encoded), concat!("Failed encoding ", stringify!($name)));
+            )+
+        }
+
+        #[cfg(test)]
+        #[test]
+        fn decode() {
+            use tests::TestArbitrary;
+            $(
+            let instance = $name::new($(<field_type!($method_ident$(: $method_extra)?)>::test_arbitrary()),*);
+            let encoded = instance.encode_as_u32();
+            let encoded = encoded.to_le_bytes();
+            assert!(matches!(Instruction::decode(&mut &encoded[..]), Ok(Some(Instruction::$name(_)))));
+            )+
+        }
 
         impl InstructionVariant {
             pub fn into_instruction(self, bits: u32) -> Option<Instruction> {
@@ -561,8 +794,19 @@ macro_rules! instructions {
     };
 }
 
-fn decode_compressed(_bits: u16) -> Option<InstructionVariant> {
-    None
+fn decode_compressed(bits: u16) -> Option<InstructionVariant> {
+    let op = bits & 0b00;
+    let funct3 = bits >> 13;
+
+    match (funct3, op) {
+        (0b000, 0b00) if bits == 0 => None,
+        (0b000, 0b00) => Some(InstructionVariant::CAddi4SpN),
+        (0b010, 0b00) => Some(InstructionVariant::CLw),
+        (0b011, 0b00) => Some(InstructionVariant::CFlw),
+        (0b110, 0b00) => Some(InstructionVariant::CSw),
+        (0b111, 0b00) => Some(InstructionVariant::CFsw),
+        _ => None,
+    }
 }
 
 impl Instruction {
@@ -932,12 +1176,7 @@ instructions! {
     Or    ("or",    0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b110) (rd: xreg, rs1: xreg, rs2: xreg),
     And   ("and",   0b011_0011, r, funct7 = 0b000_0000, funct3 = 0b111) (rd: xreg, rs1: xreg, rs2: xreg),
 
-    Fence ("fence", 0b000_1111, i,
-        funct7_6_3 = 0b0000  ,
-        rs1        = 0b0_0000,
-        funct3     = 0b000   ,
-        rd         = 0b0_0000,
-    ) (fm, pred, succ),
+    Fence ("fence", 0b000_1111, i, funct3 = 0b000) (fm, pred, succ),
 
     Ecall ("ecall", 0b111_0011, i,
         imm11_0    = 0x000   ,
@@ -962,6 +1201,42 @@ instructions! {
     Csrrwi ("csrrwi",  0b111_0011, i, funct3 = 0b101) (rd: xreg, csr, uimm: csr),
     Csrrsi ("csrrsi",  0b111_0011, i, funct3 = 0b110) (rd: xreg, csr, uimm: csr),
     Csrrci ("csrrci",  0b111_0011, i, funct3 = 0b111) (rd: xreg, csr, uimm: csr),
+
+    // RV32C
+    CAddi4SpN ("c.addi4spn", 0b00, ciw, funct3 = 0b000) (rd: cxreg, imm: cnzuimm),
+    // CFld      ("c.fld",      0b00, cl) (rd: xreg, imm: nzuimm),
+    CLw       ("c.lw",       0b00, cl,  funct3 = 0b010) (rd: cxreg, rs1: cxreg, imm: cuimm6_2),
+    CFlw      ("c.flw",      0b00, cl,  funct3 = 0b011) (rd: cfreg, rs1: cxreg, imm: cuimm6_2),
+    CSw       ("c.sw",       0b00, cs,  funct3 = 0b110) (rs1: cxreg, rs2: cxreg, imm: cuimm6_2),
+    CFsw      ("c.fsw",      0b00, cs,  funct3 = 0b111) (rs1: cxreg, rs2: cfreg, imm: cuimm6_2),
+    CNop      ("c.nop",      0b01, ci,  funct3 = 0b000, rd_rs1 = 0b00000) (rd_rs1: xreg, imm: cnzimm5_0),
+    CAddi     ("c.addi",     0b01, ci,  funct3 = 0b000) (rd_rs1: xreg, imm: cnzimm5_0),
+    CJal      ("c.jal",      0b01, cj,  funct3 = 0b001) (imm: cimm11_1),
+    // CLi       ("c.li",       0b01, ci) (rd: xreg, imm: nzuimm),
+    // CAddi16Sp ("c.addi16sp", 0b01, ci) (rd: xreg, imm: nzuimm),
+    // CLui      ("c.lui",      0b01, ci) (rd: xreg, imm: nzuimm),
+    // CSrl      ("c.srl",      0b01, ci) (rd: xreg, imm: nzuimm),
+    // CSrli     ("c.srli",     0b01, ci) (rd: xreg, imm: nzuimm),
+    // CAndi     ("c.andi",     0b01, ci) (rd: xreg, imm: nzuimm),
+    // CSubi     ("c.sub",      0b01, ci) (rd: xreg, imm: nzuimm),
+    // CXor      ( "c.xor",     0b01, ci) (rd: xreg, imm: nzuimm),
+    // COr       ( "c.or",      0b01, ci) (rd: xreg, imm: nzuimm),
+    // CAnd      ( "c.and",     0b01, ci) (rd: xreg, imm: nzuimm),
+    // CJ        ( "c.j",       0b01, ci) (rd: xreg, imm: nzuimm),
+    // CBeqz     ( "c.beqz",    0b01, ci) (rd: xreg, imm: nzuimm),
+    // CBnez     ( "c.bnez",    0b01, ci) (rd: xreg, imm: nzuimm),
+    // CSlli     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CFldSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CLwSp     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CFlwSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CJr       ( "c.jr",    0b10, ci,  funct3 = 0b100, imm_h = 0b0, imm_l = 0b00000) (rs1: xreg),
+    // CMv       ( "c.mv",    0b10, ci,  funct3 = 0b100, imm_h = 0b0) (rd: xreg, rs2:xreg, imm: nzuimm),
+    // CEBreak   ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CJalr     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CAdd      ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CFsdSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CSwSp     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    // CFswSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
 
     // RV32F
     Flw     ("flw",       0b000_0111, i, funct3 = 0b010)                                     (rd: freg, rs1: xreg, imm: itype_signed),
@@ -1089,9 +1364,19 @@ asm_display! {
     Csrrsi ("{},{},{}", i.rd(), i.csr(), i.uimm()),
     Csrrci ("{},{},{}", i.rd(), i.csr(), i.uimm()),
 
+    // RV32C
+    CAddi4SpN ("{},{}", i.rd(), i.imm()),
+    CLw       ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    CFlw      ("{},{}({})", i.rd(), i.imm(), i.rs1()),
+    CSw       ("{},{}({})", i.rs2(), i.imm(), i.rs1()),
+    CFsw      ("{},{}({})", i.rs2(), i.imm(), i.rs1()),
+    CNop,
+    CAddi     ("{},{}", i.rd_rs1(), i.imm()),
+    CJal      ("{}", i.imm()),
+
     // RV32F
     Flw    ("{},{}({})", i.rd(), i.imm(), i.rs1()),
-    Fsw    ("{},{}({})", i.rs1(), i.imm(), i.rs2()),
+    Fsw    ("{},{}({})", i.rs2(), i.imm(), i.rs1()),
 
     FmaddS  ("{},{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rs3(), i.rm()),
     FmsubS  ("{},{},{},{},{}", i.rd(), i.rs1(), i.rs2(), i.rs3(), i.rm()),
@@ -1129,4 +1414,85 @@ asm_display! {
 
     // Privileged Instructions
     MRet,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    pub trait TestArbitrary {
+        fn test_arbitrary() -> Self;
+    }
+
+    impl TestArbitrary for XRegIdent {
+        fn test_arbitrary() -> Self {
+            Self::A0
+        }
+    }
+    impl TestArbitrary for CXRegIdent {
+        fn test_arbitrary() -> Self {
+            Self::A3
+        }
+    }
+
+    impl TestArbitrary for FRegIdent {
+        fn test_arbitrary() -> Self {
+            Self::Fs0
+        }
+    }
+    impl TestArbitrary for CFRegIdent {
+        fn test_arbitrary() -> Self {
+            Self::Fa2
+        }
+    }
+    impl TestArbitrary for u32 {
+        fn test_arbitrary() -> Self {
+            0x3433_3231
+        }
+    }
+    impl TestArbitrary for i32 {
+        fn test_arbitrary() -> Self {
+            -0x3433_3231
+        }
+    }
+    impl TestArbitrary for u16 {
+        fn test_arbitrary() -> Self {
+            0x1615
+        }
+    }
+    impl TestArbitrary for i16 {
+        fn test_arbitrary() -> Self {
+            -0x1615
+        }
+    }
+    impl TestArbitrary for u8 {
+        fn test_arbitrary() -> Self {
+            0x08
+        }
+    }
+    impl TestArbitrary for i8 {
+        fn test_arbitrary() -> Self {
+            -0x08
+        }
+    }
+    impl TestArbitrary for CsrIndex {
+        fn test_arbitrary() -> Self {
+            CsrIndex(0x123)
+        }
+    }
+    impl TestArbitrary for RoundingMode {
+        fn test_arbitrary() -> Self {
+            RoundingMode::ToZero
+        }
+    }
+    impl TestArbitrary for FenceOrder {
+        fn test_arbitrary() -> Self {
+            FenceOrder::DEVICE_INPUT
+        }
+    }
+    impl TestArbitrary for FenceMode {
+        fn test_arbitrary() -> Self {
+            FenceMode(0b1011)
+        }
+    }
 }

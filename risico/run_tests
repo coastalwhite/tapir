@@ -1,0 +1,486 @@
+#! /usr/bin/env python
+
+from typing import Literal, NoReturn
+from enum import Enum, EnumMeta
+from subprocess import getstatusoutput
+
+import sys
+import os
+
+BASE_DIR = './tests/asmtests'
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+def error(s: str, reason = None) -> NoReturn:
+    eprint(f"{red('[ERROR]')}: {s}", end='')
+    if reason != None:
+        eprint(f"Reason: {str(reason)}")
+    exit(1)
+
+def red(s: str) -> str:
+    return bcolors.FAIL + s + bcolors.ENDC
+
+def green(s: str) -> str:
+    return bcolors.OKGREEN + s + bcolors.ENDC
+
+class SystemCallBehavior(Enum):
+    TESTING="testing"
+    ABORT="abort"
+    LINUX="linux"
+
+class PropertyValue:
+    def __init__(
+        self,
+        possible_values: list | EnumMeta | Literal["int"],
+        default_idx = None,
+    ) -> None:
+        if default_idx != None:
+            if isinstance(possible_values, list):
+                assert len(possible_values) > 0
+                assert default_idx < len(possible_values)
+                self.default_value = possible_values[default_idx]
+            if isinstance(possible_values, EnumMeta):
+                self.default_value = possible_values.__getitem__(default_idx)
+            else:
+                self.default_value = default_idx
+        else:
+            self.default_value = None
+
+        self.possible_values = possible_values
+
+    def to_value(self, s: str) -> str | Enum | int | None:
+        if isinstance(self.possible_values, list):
+            if isinstance(self.possible_values[0], int):
+                i = int(s)
+            else:
+                i = s
+
+
+            if not (i in self.possible_values):
+                return None
+
+            return i
+        if isinstance(self.possible_values, EnumMeta):
+            try:
+                return self.possible_values._value2member_map_[s]
+            except:
+                return None
+        else:
+            return int(s)
+
+
+PROPERTIES = {
+    'SYSCALL': PropertyValue(SystemCallBehavior, 'TESTING'),
+    'RETVAL': PropertyValue('int', 0),
+}
+
+FLAGS = {}
+
+def line_to_property_value(line: str, property: str) -> str | None:
+    line = line.strip()
+
+    if not line.startswith('#:'):
+        return None
+
+    line = line[2:].strip()
+
+    if not line.startswith(property):
+        return None
+
+    line = line[len(property):].strip()
+
+    if not line.startswith('='):
+        return None
+
+    line = line[1:].strip()
+
+    return line
+
+def line_has_flag(line: str, flag: str) -> bool:
+    line = line.strip()
+
+    if not line.startswith('#:'):
+        return False
+
+    line = line[2:].strip()
+
+    return line == flag
+
+class TestFile:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+        flags = dict()
+        properties = dict()
+
+        for flag in FLAGS:
+            flags[flag] = False
+
+        try:
+            f = open(self.asm_path(), "r")
+        except FileNotFoundError:
+            error("Unable to find test '{name}'")
+        except Exception as err:
+            error(f"Failed to open test '{name}' at '{self.asm_path()}'", err)
+
+        for line in f.readlines():
+            for (property, value) in PROPERTIES.items():
+                property_value_str = line_to_property_value(line, property)
+
+                if property_value_str == None:
+                    continue
+
+                property_value = value.to_value(property_value_str)
+
+                if property_value == None:
+                    error(f"Property '{property}' has invalid value '{property_value_str}'")
+
+                if property in properties:
+                    error(f"Property '{property}' assigned multiple times")
+
+                properties[property] = property_value
+
+            for flag in FLAGS:
+                if line_has_flag(line, flag):
+                    flags[flag] = True
+
+        f.close()
+        
+        for (property, value) in PROPERTIES.items():
+            if not (property in properties):
+                if value.default_value == None:
+                    error(f"Property '{property}' without default value not given")
+                else:
+                    properties[property] = value.default_value
+
+        self.properties = properties
+        self.flags = flags
+
+    def binary_path(self):
+        return f"{BASE_DIR}/{self.name}.o"
+
+    def asm_path(self):
+        return f"{BASE_DIR}/{self.name}.S"
+
+    def output_dir(self):
+        return os.path.dirname(f"{BASE_DIR}/outputs/{self.name}")
+
+    def output_path(self):
+        return f"{BASE_DIR}/outputs/{self.name}"
+
+    def get_output(self):
+        try:
+            os.mkdir(self.output_dir())
+        except FileExistsError:
+            pass
+        except Exception as err:
+            raise err
+
+        try:
+            open(self.output_path(), 'a').close()
+
+            with open(self.output_path(), 'r') as f:
+                return f.read()
+        except Exception as err:
+            error(f"Test '{self.name}' failed to open '{self.output_path()}'", err)
+
+class CommandResult:
+    def __init__(self, status: int, output: str) -> None:
+        self.status = status
+        self.output = output
+
+def compile() -> CommandResult:
+    status, output = getstatusoutput("cargo build -q")
+
+    return CommandResult(status, output)
+
+def run(tfile: TestFile) -> CommandResult:
+    status, output = getstatusoutput(
+        f"./target/debug/cli -S {tfile.properties['SYSCALL'].value} -L i {tfile.binary_path()}"
+    )
+
+    return CommandResult(status, output)
+
+def assemble(tfile: TestFile):
+    status, output = getstatusoutput(
+        f"riscv-none-elf-as {tfile.asm_path()} -o {tfile.binary_path()}"
+    )
+
+    return CommandResult(status, output)
+
+def fetch_all_tests() -> list[TestFile]:
+    tests = []
+
+    for root, _, files in os.walk(BASE_DIR):
+        for file in files:
+            if file.endswith(".S"):
+                path = os.path.join(root, file)
+
+                relpath = path[len(BASE_DIR)+1:]
+                name = relpath[:-2]
+
+                tests.append(TestFile(name))
+
+    tests.sort(key=lambda tfile: tfile.name)
+
+    return tests
+
+def run_tests(tests: list[TestFile], allow_interactive: bool) -> NoReturn:
+    r = compile()
+
+    if r.status != 0:
+        print(red('Compilation Failed'))
+        eprint("")
+        eprint(r.output)
+        exit(r.status)
+    else:
+        print('Compiled.')
+
+    print('')
+    successes = 0
+    for tfile in tests:
+        print(f"{tfile.name:40}", end='')
+
+        r = assemble(tfile)
+
+        if r.status != 0:
+            print(red('Assembly Failed'))
+            print("")
+            print("--- START ASM OUTPUT ---")
+            print(r.output)
+            print("---- END ASM OUTPUT -----")
+            continue
+
+        r = run(tfile)
+
+        if r.status != tfile.properties['RETVAL']:
+            print(red(f"Invalid Status ({r.status} != {tfile.properties['RETVAL']})"))
+            continue
+
+        if not os.path.exists(tfile.output_path()):
+            if not allow_interactive:
+                print(red('Not yet set'))
+                continue
+
+            print("New")
+            print("")
+            print(f"Test '{tfile.name} does not have a known output yet.")
+            print(f"--- START NEW OUTPUT ---")
+            print(r.output)
+            print(f"---- END NEW OUTPUT ----")
+            if query_yes_no(f"Do you want to set this output for '{tfile.name}'?"):
+                try:
+                    f = open(tfile.output_path(), "w")
+                except Exception as err:
+                    error(f"Test '{tfile.name}' failed to open '{tfile.output_path()}' for writing", err)
+
+                f.write(r.output)
+
+                f.close()
+        else:
+            if r.output.strip() != tfile.get_output().strip():
+                print(red('Invalid Output'))
+                continue
+
+            successes += 1
+            print(green('Success'))
+
+    print('')
+    print(f'{successes}/{len(tests)} successful')
+    
+    if successes == len(tests):
+        exit(0)
+    else:
+        exit(1)
+
+def run_updates(tests: list[TestFile], do_confirm: bool) -> NoReturn:
+    r = compile()
+
+    if r.status != 0:
+        print(red('Compilation Failed'))
+        eprint("")
+        eprint(r.output)
+        exit(r.status)
+    else:
+        print('Compiled.')
+
+    print('')
+    update_prompts = 0
+    for tfile in tests:
+
+        r = assemble(tfile)
+
+        if r.status != 0:
+            print(red(f"{tfile.name:40}Assembly Failed"))
+            print("")
+            print("--- START ASM OUTPUT ---")
+            print(r.output)
+            print("---- END ASM OUTPUT -----")
+            continue
+
+        r = run(tfile)
+
+        if r.status != tfile.properties['RETVAL']:
+            print(red(
+                  f"{tfile.name:40}Invalid Status ({r.status} != {tfile.properties['RETVAL']})"
+            ))
+            continue
+
+        if r.output.strip() != tfile.get_output().strip():
+            update_prompts += 1
+            print(f"Different outputs for '{tfile.name}'")
+            print("")
+            print("--- START OLD ---")
+            print(tfile.get_output().strip())
+            print("---- END OLD ----")
+            print("")
+            print("--- START NEW ---")
+            print(r.output.strip())
+            print("---- END NEW ----")
+            if not do_confirm or query_yes_no(f"Update the output for '{tfile.name}'", default='no'):
+                try:
+                    f = open(tfile.output_path(), "w")
+                except Exception as err:
+                    error(f"Test '{tfile.name}' failed to open '{tfile.output_path()}' for writing", err)
+
+                f.write(r.output)
+
+                f.close()
+
+    if update_prompts == 0:
+        print("No tests need updates...")
+
+    exit(0)
+
+USAGE = f"""
+Usage: {sys.argv[0]} [subcommand]
+
+Run all the tests within the `./tests/asmtests` directory.
+
+Without a subcommand this will run all the known tests.
+
+Subcommands:
+- help: Show this usage information
+- run: Run all tests
+- run <test1> [test2] ...: Run specific tests
+- show: Shows the output and status information of all tests
+- show <test1> [test2] ...: Show the output and status information of specific tests
+- update: Update the saved output of all tests 
+- update <test1> [test2] ...: Update the saved output of specific tests
+
+Flags:
+ -y, --no-confirm: Don't ask for confirmation when updating
+""".strip()
+
+NO_CONFIRM_FLAGS=['-y', '--no-confirm']
+NO_INTERACTIVE_FLAGS=['-I', '--no-interactive']
+
+def query_yes_no(question, default="yes"):
+    """Ask a yes/no question via raw_input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+            It must be "yes" (the default), "no" or None (meaning
+            an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == "":
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
+
+def main() -> None:
+    if len(sys.argv) <= 1:
+        tests = fetch_all_tests()
+        run_tests(tests, allow_interactive = True)
+
+    match sys.argv[1]:
+        case s if s in NO_INTERACTIVE_FLAGS:
+            tests = fetch_all_tests()
+            run_tests(tests, allow_interactive = False)
+        case 'h' | 'help':
+            print(USAGE)
+            exit(0)
+        case 'r' | 'run':
+            allow_interactive = len(sys.argv) > 2 and not any(map(
+                lambda arg: arg in NO_INTERACTIVE_FLAGS,
+                sys.argv[2:]
+            ))
+
+            if len(sys.argv) == 2 or (not allow_interactive and len(sys.argv) == 3):
+                tests = fetch_all_tests()
+            else:
+                tests = sys.argv[2:]
+                tests = [
+                    TestFile(test)
+                    for test in tests
+                    if not test in NO_INTERACTIVE_FLAGS
+                ]
+            
+            run_tests(tests, allow_interactive)
+        case 's' | 'show':
+            if len(sys.argv) == 2:
+                tests = fetch_all_tests()
+            else:
+                tests = sys.argv[2:]
+                tests = [TestFile(test) for test in tests]
+        
+            for tfile in tests:
+                print(f"{bcolors.BOLD}{bcolors.UNDERLINE}{tfile.name}{bcolors.ENDC}")
+                print(f"Expected Status Code: {tfile.properties['RETVAL']}")
+                if os.path.exists(tfile.output_path()):
+                    print(f"--- START EXPECTED OUTPUT ---")
+                    print(tfile.get_output().strip())
+                    print(f"---- END EXPECTED OUTPUT ----")
+                else:
+                    print("Output not yet set.")
+                print("")
+        case 'u' | 'update':
+            do_confirm = len(sys.argv) > 2 and not any(map(
+                lambda arg: arg in NO_CONFIRM_FLAGS,
+                sys.argv[2:]
+            ))
+
+            if len(sys.argv) == 2 or (not do_confirm and len(sys.argv) == 3):
+                tests = fetch_all_tests()
+            else:
+                tests = sys.argv[2:]
+                tests = [
+                    TestFile(test)
+                    for test in tests
+                    if test.strip() in NO_CONFIRM_FLAGS
+                ]
+
+
+            run_updates(tests, do_confirm)
+
+if __name__ == "__main__":
+    main()

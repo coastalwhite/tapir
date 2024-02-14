@@ -37,6 +37,19 @@ pub enum XRegIdent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+pub enum CXRegIdent {
+    Fp = 0,
+    S1 = 1,
+    A0 = 2,
+    A1 = 3,
+    A2 = 4,
+    A3 = 5,
+    A4 = 6,
+    A5 = 7,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
 pub enum FRegIdent {
     Ft0 = 0,
     Ft1 = 1,
@@ -70,6 +83,19 @@ pub enum FRegIdent {
     Ft9 = 29,
     Ft10 = 30,
     Ft11 = 31,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum CFRegIdent {
+    Fs0 = 0,
+    Fs1 = 1,
+    Fa0 = 2,
+    Fa1 = 3,
+    Fa2 = 4,
+    Fa3 = 5,
+    Fa4 = 6,
+    Fa5 = 7,
 }
 
 impl XRegIdent {
@@ -230,6 +256,82 @@ impl FRegIdent {
     }
 }
 
+impl CXRegIdent {
+    pub fn take(v: u32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Fp),
+            1 => Some(Self::S1),
+            2 => Some(Self::A0),
+            3 => Some(Self::A1),
+            4 => Some(Self::A2),
+            5 => Some(Self::A3),
+            6 => Some(Self::A4),
+            7 => Some(Self::A5),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn take_masked(v: u32) -> Self {
+        match v & 7 {
+            0 => Self::Fp,
+            1 => Self::S1,
+            2 => Self::A0,
+            3 => Self::A1,
+            4 => Self::A2,
+            5 => Self::A3,
+            6 => Self::A4,
+            7 => Self::A5,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl CFRegIdent {
+    pub fn take(v: u32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Fs0),
+            1 => Some(Self::Fs1),
+            2 => Some(Self::Fa0),
+            3 => Some(Self::Fa1),
+            4 => Some(Self::Fa2),
+            5 => Some(Self::Fa3),
+            6 => Some(Self::Fa4),
+            7 => Some(Self::Fa5),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn take_masked(v: u32) -> Self {
+        match v & 7 {
+            0 => Self::Fs0,
+            1 => Self::Fs1,
+            2 => Self::Fa0,
+            3 => Self::Fa1,
+            4 => Self::Fa2,
+            5 => Self::Fa3,
+            6 => Self::Fa4,
+            7 => Self::Fa5,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl From<CXRegIdent> for XRegIdent {
+    #[inline(always)]
+    fn from(value: CXRegIdent) -> Self {
+        Self::take_masked(value as u32 + 8)
+    }
+}
+
+impl From<CFRegIdent> for FRegIdent {
+    #[inline(always)]
+    fn from(value: CFRegIdent) -> Self {
+        Self::take_masked(value as u32 + 8)
+    }
+}
+
 impl ::core::fmt::Display for XRegIdent {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         #[rustfmt::skip]
@@ -253,5 +355,19 @@ impl ::core::fmt::Display for FRegIdent {
             "fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
         ];
         f.write_str(LOOK_UP[*self as u8 as usize])
+    }
+}
+
+impl ::core::fmt::Display for CXRegIdent {
+    #[inline(always)]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        XRegIdent::from(*self).fmt(f)
+    }
+}
+
+impl ::core::fmt::Display for CFRegIdent {
+    #[inline(always)]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        FRegIdent::from(*self).fmt(f)
     }
 }
