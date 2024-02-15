@@ -109,6 +109,7 @@ macro_rules! format_enable {
             $( | { $rs1   ;   0b1_1111u32 << 15 } )?
             $( | { $funct3;      0b111u32 << 12 } )?
             $( | { $rd    ;   0b1_1111u32 << 07 } )?
+            | 0x7F
     };
     (
         s
@@ -122,6 +123,7 @@ macro_rules! format_enable {
             $( | { $rs2   ; 0b1_1111u32 << 20 } )?
             $( | { $rs1   ; 0b1_1111u32 << 15 } )?
             $( | { $funct3;    0b111u32 << 12 } )?
+            | 0x7F
     };
     (
         i
@@ -139,6 +141,7 @@ macro_rules! format_enable {
             $( | { $rs1        ; 0b1_1111u32   << 15 } )?
             $( | { $funct3     ;    0b111u32   << 12 } )?
             $( | { $rd         ; 0b1_1111u32   << 07 } )?
+            | 0x7F
     };
     (
         b
@@ -152,6 +155,7 @@ macro_rules! format_enable {
             $( | { $rs2   ; 0b1_1111u32 << 20 } )?
             $( | { $rs1   ; 0b1_1111u32 << 15 } )?
             $( | { $funct3;    0b111u32 << 12 } )?
+            | 0x7F
     };
     (
         u
@@ -161,6 +165,7 @@ macro_rules! format_enable {
         0u32
             $( | { $imm31_12; 0xFFFF_Fu32 << 12 } )?
             $( | { $rd      ; 0b1111_1u32 << 07 } )?
+            | 0x7F
     };
     (
         j
@@ -170,20 +175,52 @@ macro_rules! format_enable {
         0u32
             $( | { $imm20_1; 0xFFFF_Fu32 << 12 } )?
             $( | { $rd     ; 0b1111_1u32 << 07 } )?
+            | 0x7F
     };
 
+    (
+        cr
+        $(, funct4        = $funct4:literal        )?
+        $(, funct2_rd_rs1 = $funct2_rd_rs1:literal )?
+        $(, rd_rs1        = $rd_rs1:literal        )?
+        $(, funct2_rs2    = $funct2_rs2:literal    )?
+        $(, rs2           = $rs2:literal           )?
+    ) => {
+        0u32
+            $( | { $funct4       ; 0b1111 << 12 } )?
+            $( | { $funct2_rd_rs1; 0b0011 << 10 } )?
+            $( | { $rd_rs1       ; 0x001F << 07 } )?
+            $( | { $funct2_rs2   ; 0b0011 << 05 } )?
+            $( | { $rs2          ; 0x001F << 02 } )?
+            | 0x03
+    };
     (
         ci
         $(, funct3 = $funct3:literal   )?
         $(, imm_h  = $imm_h:literal    )?
+        $(, funct2 = $funct2:literal   )?
         $(, rd_rs1 = $rd_rs1:literal   )?
         $(, imm_l  = $imm_l:literal    )?
     ) => {
         0u32
             $( | { $funct3; 0b111 << 13 } )?
             $( | { $imm_h ; 0b001 << 12 } )?
+            $( | { $funct2; 0b011 << 10 } )?
             $( | { $rd_rs1; 0x01F << 07 } )?
             $( | { $imm_l ; 0x01F << 02 } )?
+            | 0x03
+    };
+    (
+        css
+        $(, funct3 = $funct3:literal   )?
+        $(, imm    = $imm:literal      )?
+        $(, rs2    = $rs2:literal   )?
+    ) => {
+        0u32
+            $( | { $funct3; 0x07 << 13 } )?
+            $( | { $imm   ; 0x3F << 07 } )?
+            $( | { $rs2   ; 0x1F << 02 } )?
+            | 0x03
     };
     (
         ciw
@@ -195,6 +232,7 @@ macro_rules! format_enable {
             $( | { $funct3; 0b111 << 13 } )?
             $( | { $imm   ; 0x0FF << 05 } )?
             $( | { $rd    ; 0b111 << 02 } )?
+            | 0x03
     };
     (
         cl
@@ -210,6 +248,7 @@ macro_rules! format_enable {
             $( | { $rs1   ; 0b111 << 07 } )?
             $( | { $imm_l ; 0b011 << 05 } )?
             $( | { $rd    ; 0b111 << 02 } )?
+            | 0x03
     };
     (
         cs
@@ -225,6 +264,27 @@ macro_rules! format_enable {
             $( | { $rs1   ; 0b111 << 07 } )?
             $( | { $imm_l ; 0b011 << 05 } )?
             $( | { $rs2   ; 0b111 << 02 } )?
+            | 0x03
+    };
+    (
+        cb
+        $(, funct3 = $funct3:literal )?
+        $(, imm    = $imm:literal    )?
+    ) => {
+        0u32
+            $( | { $funct3; 0b111 << 13 } )?
+            $( compile_error!($imm) )?
+            | 0x03
+    };
+    (
+        cj
+        $(, funct3 = $funct3:literal )?
+        $(, imm    = $imm:literal    )?
+    ) => {
+        0u32
+            $( | { $funct3; 0b111 << 13 } )?
+            $( | { $imm   ; 0x7FF << 02 } )?
+            | 0x03
     };
 }
 
@@ -310,25 +370,31 @@ macro_rules! format_mask {
 
     (
         cr
-        $(, funct4 = $funct4:literal   )?
-        $(, rd_rs1 = $rd_rs1:literal   )?
-        $(, rs2    = $rs2:literal      )?
+        $(, funct4        = $funct4:literal        )?
+        $(, funct2_rd_rs1 = $funct2_rd_rs1:literal )?
+        $(, rd_rs1        = $rd_rs1:literal        )?
+        $(, funct2_rs2    = $funct2_rs2:literal    )?
+        $(, rs2           = $rs2:literal           )?
     ) => {
         0u32
-            $( | { const FUNCT4: u32 = $funct4; FUNCT4 << 12 } )?
-            $( | { const RD_RS1: u32 = $rd_rs1; RD_RS1 << 07 } )?
-            $( | { const RS2:    u32 = $rs2   ; RS2    << 02 } )?
+            $( | { const FUNCT4:        u32 = $funct4;        FUNCT4        << 12 } )?
+            $( | { const FUNCT2_RD_RS1: u32 = $funct2_rd_rs1; FUNCT2_RD_RS1 << 10 } )?
+            $( | { const RD_RS1:        u32 = $rd_rs1;        RD_RS1        << 07 } )?
+            $( | { const FUNCT2_RS2:    u32 = $funct2_rs2;    FUNCT2_RS2    << 05 } )?
+            $( | { const RS2:           u32 = $rs2   ;        RS2           << 02 } )?
     };
     (
         ci
         $(, funct3 = $funct3:literal   )?
         $(, imm_h  = $imm_h:literal    )?
+        $(, funct2 = $funct2:literal   )?
         $(, rd_rs1 = $rd_rs1:literal   )?
         $(, imm_l  = $imm_l:literal    )?
     ) => {
         0u32
             $( | { const FUNCT3: u32 = $funct3; FUNCT3 << 13 } )?
             $( | { const IMM_H:  u32 = $imm_h ; IMM_H  << 12 } )?
+            $( | { const FUNCT2: u32 = $funct2; FUNCT2 << 10 } )?
             $( | { const RD_RS1: u32 = $rd_rs1; RD_RS1 << 07 } )?
             $( | { const IMM_L:  u32 = $imm_l ; IMM_L  << 02 } )?
     };
@@ -448,6 +514,8 @@ macro_rules! field_type {
     (rm)                  => { RoundingMode };
     ($i:ident: cxreg )    => { CXRegIdent };
     ($i:ident:   xreg)    => { XRegIdent };
+    ($i:ident:xreg_cr)    => { XRegIdent };
+    ($i:ident:freg_cr)    => { FRegIdent };
     (shamt)               => { u8 };
     (csr)                 => { CsrIndex };
     (uimm: csr)           => { u8 };
@@ -459,7 +527,15 @@ macro_rules! field_type {
     (imm: utype)          => { u32 };
     (imm: cnzuimm)        => { u32 };
     (imm: cnzimm5_0)      => { i8  };
+    (imm: cimm5_0  )      => { i8  };
     (imm: cuimm6_2)       => { u8  };
+    (imm: cimm11_1)       => { i16 };
+    (imm: cnzimm9_4)      => { i16 };
+    (imm: cnzimm17_12)    => { i32 };
+    (imm: cnzuimm5_0)     => { u8  };
+    (imm: cimm8_1)        => { i16 };
+    (imm: cuimm7_2_cs)    => { u8  };
+    (imm: cuimm7_2_cl)    => { u8  };
     (fm)                  => { FenceMode };
     (pred)                => { FenceOrder };
     (succ)                => { FenceOrder };
@@ -479,6 +555,9 @@ macro_rules! field_encode {
     ($v:ident, rs1: xreg) =>           { ($v as u32) << 15 };
     ($v:ident, rs2: xreg) =>           { ($v as u32) << 20 };
     ($v:ident, rd_rs1: xreg) =>        { ($v as u32) << 7  };
+    ($v:ident, rs1: xreg_cr) =>        { ($v as u32) << 7 };
+    ($v:ident, rs2: xreg_cr) =>        { ($v as u32) << 2 };
+    ($v:ident, rs2: freg_cr) =>        { ($v as u32) << 2 };
 
     ($v:ident, rd: cxreg) =>           { ($v as u32) << 2  };
     ($v:ident, rs2: cxreg) =>          { ($v as u32) << 2  };
@@ -523,7 +602,15 @@ macro_rules! field_encode {
     ($v:ident, imm: utype) => { encode_fragmented!($v, 31:12; 12) };
     ($v:ident, imm: cnzuimm) => { encode_fragmented!($v, 10:7,12:11,5,6; 2) };
     ($v:ident, imm: cnzimm5_0) => { encode_fragmented!($v, 12,6:2; 0) };
+    ($v:ident, imm: cimm5_0) =>   { encode_fragmented!($v, 12,6:2; 0) };
     ($v:ident, imm: cuimm6_2)  => { encode_fragmented!($v, 5,12:10,6; 2) };
+    ($v:expr, imm: cimm11_1) => { encode_fragmented!($v, 12,8,10:9,6,7,2,11,5:3; 1) };
+    ($v:expr, imm: cnzimm9_4) =>   { encode_fragmented!($v, 12,4:3,5,2,6; 4) };
+    ($v:expr, imm: cnzimm17_12) => { encode_fragmented!($v, 12,6:2; 12) };
+    ($v:expr, imm: cnzuimm5_0) =>   { encode_fragmented!($v, 12,6:2; 0) };
+    ($v:expr, imm: cimm8_1) =>   { encode_fragmented!($v, 12,6:5,2,11:10,4:3; 1) };
+    ($v:expr, imm: cuimm7_2_cs) =>   { encode_fragmented!($v, 8:7,12:9; 2) };
+    ($v:expr, imm: cuimm7_2_cl) =>   { encode_fragmented!($v, 12,3:2,6:4; 2) };
     ($v:ident, fm) => { ($v.0 as u32) << 28 };
     ($v:ident, pred) => { ($v.encode() as u32) << 24 };
     ($v:ident, succ) => { ($v.encode() as u32) << 20 };
@@ -543,6 +630,9 @@ macro_rules! field_decode {
     ($bs:expr, rs1: xreg)           => { XRegIdent::take_masked($bs >> 15) };
     ($bs:expr, rs2: xreg)           => { XRegIdent::take_masked($bs >> 20) };
     ($bs:expr, rd_rs1: xreg)        => { XRegIdent::take_masked($bs >> 7) };
+    ($bs:expr, rs1: xreg_cr)        => { XRegIdent::take_masked($bs >> 7) };
+    ($bs:expr, rs2: xreg_cr)        => { XRegIdent::take_masked($bs >> 2) };
+    ($bs:expr, rs2: freg_cr)        => { FRegIdent::take_masked($bs >> 2) };
 
     ($bs:expr, rd: cxreg)           => { CXRegIdent::take_masked($bs >> 2) };
     ($bs:expr, rs2: cxreg)          => { CXRegIdent::take_masked($bs >> 2) };
@@ -591,7 +681,15 @@ macro_rules! field_decode {
     ($bs:expr, imm: utype) => { decode_unsigned_fragmented!($bs, 31:12; 12) };
     ($bs:expr, imm: cnzuimm) => { decode_unsigned_fragmented!($bs, 10:7,12:11,5,6; 2) };
     ($bs:expr, imm: cnzimm5_0) => { decode_signed_fragmented!($bs, 12,6:2; 0) as i8 };
-    ($bs:expr, imm: cuimm6_2) => { decode_unsigned_fragmented!($bs, 5,12:10,6; 2) as u8 };
+    ($bs:expr, imm: cimm5_0) =>   { decode_signed_fragmented!($bs, 12,6:2; 0) as i8 };
+    ($bs:expr, imm: cuimm6_2) =>  { decode_unsigned_fragmented!($bs, 5,12:10,6; 2) as u8 };
+    ($bs:expr, imm: cimm11_1) =>  { decode_signed_fragmented!($bs, 12,8,10:9,6,7,2,11,5:3; 1) as i16 };
+    ($bs:expr, imm: cnzimm9_4) => { decode_signed_fragmented!($bs, 12,4:3,5,2,6; 4) as i16 };
+    ($bs:expr, imm: cnzimm17_12) => { decode_signed_fragmented!($bs, 12,6:2; 12) as i32 };
+    ($bs:expr, imm: cnzuimm5_0) =>   { decode_unsigned_fragmented!($bs, 12,6:2; 0) as u8 };
+    ($bs:expr, imm: cimm8_1) =>   { decode_signed_fragmented!($bs, 12,6:5,2,11:10,4:3; 1) as i16 };
+    ($bs:expr, imm: cuimm7_2_cs) =>   { decode_unsigned_fragmented!($bs, 8:7,12:9; 2) as u8 };
+    ($bs:expr, imm: cuimm7_2_cl) =>   { decode_unsigned_fragmented!($bs, 12,3:2,6:4; 2) as u8 };
     ($bs:expr, fm) => { FenceMode((($bs >> 28) & 0xF) as u8) };
     ($bs:expr, pred) => { FenceOrder::take_masked($bs >> 24) };
     ($bs:expr, succ) => { FenceOrder::take_masked($bs >> 20) };
@@ -661,7 +759,7 @@ macro_rules! instructions {
             pub const NUM_BYTES: usize = format_num_bytes!($format);
             pub const MNEMONIC: &'static str = $mnemonic;
 
-            const ENABLE: u32 = format_enable!($format$(, $field = $value)*) | $opcode;
+            const ENABLE: u32 = format_enable!($format$(, $field = $value)*);
             const MASK:   u32 = format_mask!  ($format$(, $field = $value)*) | $opcode;
 
             #[inline]
@@ -729,6 +827,9 @@ macro_rules! instructions {
         #[test]
         fn decode() {
             use tests::TestArbitrary;
+
+            eprintln!("CBnez::MASK   = 0x{:08x}", CBnez::MASK);
+            eprintln!("CBnez::ENABLE = 0x{:08x}", CBnez::ENABLE);
             $(
             let instance = $name::new($(<field_type!($method_ident$(: $method_extra)?)>::test_arbitrary()),*);
             let encoded = instance.encode_as_u32();
@@ -773,6 +874,12 @@ macro_rules! instructions {
 
         impl Instruction {
             #[inline(always)]
+            pub fn num_bytes(self) -> usize {
+                let bits = self.encode_as_u32();
+                2 << usize::from(bits & 0b11 == 0b11)
+            }
+
+            #[inline(always)]
             pub fn encode_as_u32(self) -> u32 {
                 match self {
                     $(
@@ -795,16 +902,45 @@ macro_rules! instructions {
 }
 
 fn decode_compressed(bits: u16) -> Option<InstructionVariant> {
-    let op = bits & 0b00;
+    let op = bits & 0b11;
     let funct3 = bits >> 13;
+    let funct4_lsb = (bits >> 12) & 1;
+    let funct2_rs1_rd = (bits >> 10) & 0b11;
+    let funct2_rs2 = (bits >> 5) & 0b11;
 
-    match (funct3, op) {
-        (0b000, 0b00) if bits == 0 => None,
-        (0b000, 0b00) => Some(InstructionVariant::CAddi4SpN),
-        (0b010, 0b00) => Some(InstructionVariant::CLw),
-        (0b011, 0b00) => Some(InstructionVariant::CFlw),
-        (0b110, 0b00) => Some(InstructionVariant::CSw),
-        (0b111, 0b00) => Some(InstructionVariant::CFsw),
+    match (funct3, funct4_lsb, op, funct2_rs1_rd, funct2_rs2) {
+        (0b000, _, 0b00, _, _) if bits == 0 => None,
+        (0b000, _, 0b00, _, _) => Some(InstructionVariant::CAddi4SpN),
+        (0b010, _, 0b00, _, _) => Some(InstructionVariant::CLw),
+        (0b011, _, 0b00, _, _) => Some(InstructionVariant::CFlw),
+        (0b110, _, 0b00, _, _) => Some(InstructionVariant::CSw),
+        (0b111, _, 0b00, _, _) => Some(InstructionVariant::CFsw),
+        (0b000, _, 0b01, _, _) if bits == 0x0001 => Some(InstructionVariant::CNop),
+        (0b000, _, 0b01, _, _) => Some(InstructionVariant::CAddi),
+        (0b001, _, 0b01, _, _) => Some(InstructionVariant::CJal),
+        (0b010, _, 0b01, _, _) => Some(InstructionVariant::CLi),
+        (0b011, _, 0b01, _, _) if CAddi16Sp::matches(bits.into()) => Some(InstructionVariant::CAddi16Sp),
+        (0b011, _, 0b01, _, _) => Some(InstructionVariant::CLui),
+        (0b100, _, 0b01, 0b00, _) => Some(InstructionVariant::CSrli),
+        (0b100, _, 0b01, 0b01, _) => Some(InstructionVariant::CSrai),
+        (0b100, _, 0b01, 0b10, _) => Some(InstructionVariant::CAndi),
+        (0b100, 0, 0b01, 0b11, 0b00) => Some(InstructionVariant::CSub),
+        (0b100, 0, 0b01, 0b11, 0b01) => Some(InstructionVariant::CXor),
+        (0b100, 0, 0b01, 0b11, 0b10) => Some(InstructionVariant::COr),
+        (0b100, 0, 0b01, 0b11, 0b11) => Some(InstructionVariant::CAnd),
+        (0b101, _, 0b01, _, _) => Some(InstructionVariant::CJ),
+        (0b110, _, 0b01, _, _) => Some(InstructionVariant::CBeqz),
+        (0b111, _, 0b01, _, _) => Some(InstructionVariant::CBnez),
+        (0b000, _, 0b10, _, _) => Some(InstructionVariant::CSlli),
+        (0b010, _, 0b10, _, _) => Some(InstructionVariant::CLwSp),
+        (0b011, _, 0b10, _, _) => Some(InstructionVariant::CFlwSp),
+        (0b100, 0, 0b10, _, _) if CJr::matches(bits.into()) => Some(InstructionVariant::CJr),
+        (0b100, 0, 0b10, _, _) => Some(InstructionVariant::CMv),
+        (0b100, 1, 0b10, _, _) if CEBreak::matches(bits.into()) => Some(InstructionVariant::CEBreak),
+        (0b100, 1, 0b10, _, _) if CJalr::matches(bits.into()) => Some(InstructionVariant::CJalr),
+        (0b100, 1, 0b10, _, _) => Some(InstructionVariant::CAdd),
+        (0b110, _, 0b10, _, _) => Some(InstructionVariant::CSwSp),
+        (0b111, _, 0b10, _, _) => Some(InstructionVariant::CFswSp),
         _ => None,
     }
 }
@@ -990,6 +1126,14 @@ fn decode_op(bits: u32) -> Option<InstructionVariant> {
             static LUT: [InstructionVariant; 8] = [
                 V::Add, V::Sll, V::Slt, V::Sltu, // 000
                 V::Xor, V::Srl, V::Or,  V::And,  // 100
+            ];
+            Some(LUT[funct3 as usize])
+        }
+        0b000_0001 => {
+            #[rustfmt::skip]
+            static LUT: [InstructionVariant; 8] = [
+                V::Mul, V::MulH, V::MulHsu, V::MulHu, // 000
+                V::Div, V::DivU, V::Rem,    V::RemU,  // 100
             ];
             Some(LUT[funct3 as usize])
         }
@@ -1202,6 +1346,16 @@ instructions! {
     Csrrsi ("csrrsi",  0b111_0011, i, funct3 = 0b110) (rd: xreg, csr, uimm: csr),
     Csrrci ("csrrci",  0b111_0011, i, funct3 = 0b111) (rd: xreg, csr, uimm: csr),
 
+    // RV32M
+    Mul       ("mul",        0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b000) (rd: xreg, rs1: xreg, rs2: xreg),
+    MulH      ("mulh",       0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b001) (rd: xreg, rs1: xreg, rs2: xreg),
+    MulHsu    ("mulhsu",     0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b010) (rd: xreg, rs1: xreg, rs2: xreg),
+    MulHu     ("mulhu",      0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b011) (rd: xreg, rs1: xreg, rs2: xreg),
+    Div       ("div",        0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b100) (rd: xreg, rs1: xreg, rs2: xreg),
+    DivU      ("divu",       0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b101) (rd: xreg, rs1: xreg, rs2: xreg),
+    Rem       ("rem",        0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b110) (rd: xreg, rs1: xreg, rs2: xreg),
+    RemU      ("remu",       0b011_0011, r, funct7 = 0b000_0001, funct3 = 0b111) (rd: xreg, rs1: xreg, rs2: xreg),
+
     // RV32C
     CAddi4SpN ("c.addi4spn", 0b00, ciw, funct3 = 0b000) (rd: cxreg, imm: cnzuimm),
     // CFld      ("c.fld",      0b00, cl) (rd: xreg, imm: nzuimm),
@@ -1209,34 +1363,35 @@ instructions! {
     CFlw      ("c.flw",      0b00, cl,  funct3 = 0b011) (rd: cfreg, rs1: cxreg, imm: cuimm6_2),
     CSw       ("c.sw",       0b00, cs,  funct3 = 0b110) (rs1: cxreg, rs2: cxreg, imm: cuimm6_2),
     CFsw      ("c.fsw",      0b00, cs,  funct3 = 0b111) (rs1: cxreg, rs2: cfreg, imm: cuimm6_2),
-    CNop      ("c.nop",      0b01, ci,  funct3 = 0b000, rd_rs1 = 0b00000) (rd_rs1: xreg, imm: cnzimm5_0),
+    CNop      ("c.nop",      0b01, cr,  funct4 = 0b0000, rd_rs1 = 0b00000, rs2 = 0b00000) (),
     CAddi     ("c.addi",     0b01, ci,  funct3 = 0b000) (rd_rs1: xreg, imm: cnzimm5_0),
     CJal      ("c.jal",      0b01, cj,  funct3 = 0b001) (imm: cimm11_1),
-    // CLi       ("c.li",       0b01, ci) (rd: xreg, imm: nzuimm),
-    // CAddi16Sp ("c.addi16sp", 0b01, ci) (rd: xreg, imm: nzuimm),
-    // CLui      ("c.lui",      0b01, ci) (rd: xreg, imm: nzuimm),
-    // CSrl      ("c.srl",      0b01, ci) (rd: xreg, imm: nzuimm),
-    // CSrli     ("c.srli",     0b01, ci) (rd: xreg, imm: nzuimm),
-    // CAndi     ("c.andi",     0b01, ci) (rd: xreg, imm: nzuimm),
-    // CSubi     ("c.sub",      0b01, ci) (rd: xreg, imm: nzuimm),
-    // CXor      ( "c.xor",     0b01, ci) (rd: xreg, imm: nzuimm),
-    // COr       ( "c.or",      0b01, ci) (rd: xreg, imm: nzuimm),
-    // CAnd      ( "c.and",     0b01, ci) (rd: xreg, imm: nzuimm),
-    // CJ        ( "c.j",       0b01, ci) (rd: xreg, imm: nzuimm),
-    // CBeqz     ( "c.beqz",    0b01, ci) (rd: xreg, imm: nzuimm),
-    // CBnez     ( "c.bnez",    0b01, ci) (rd: xreg, imm: nzuimm),
-    // CSlli     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    CLi       ("c.li",       0b01, ci,  funct3 = 0b010) (rd: xreg, imm: cimm5_0),
+    CAddi16Sp ("c.addi16sp", 0b01, ci,  funct3 = 0b011, rd_rs1 = 0b00010) (imm: cnzimm9_4),
+    CLui      ("c.lui",      0b01, ci,  funct3 = 0b011) (rd: xreg, imm: cnzimm17_12),
+    CSrli     ("c.srli",     0b01, ci,  funct3 = 0b100, funct2 = 0b00) (rd_rs1: cxreg, imm: cnzuimm5_0),
+    CSrai     ("c.srai",     0b01, ci,  funct3 = 0b100, funct2 = 0b01) (rd_rs1: cxreg, imm: cnzuimm5_0),
+    CAndi     ("c.andi",     0b01, ci,  funct3 = 0b100, funct2 = 0b10) (rd_rs1: cxreg, imm: cimm5_0),
+    CSub      ("c.sub",      0b01, cr,  funct4 = 0b1000, funct2_rd_rs1 = 0b11, funct2_rs2 = 0b00) (rd_rs1: cxreg, rs2: cxreg),
+    CXor      ("c.xor",      0b01, cr,  funct4 = 0b1000, funct2_rd_rs1 = 0b11, funct2_rs2 = 0b01) (rd_rs1: cxreg, rs2: cxreg),
+    COr       ("c.or",       0b01, cr,  funct4 = 0b1000, funct2_rd_rs1 = 0b11, funct2_rs2 = 0b10) (rd_rs1: cxreg, rs2: cxreg),
+    CAnd      ("c.and",      0b01, cr,  funct4 = 0b1000, funct2_rd_rs1 = 0b11, funct2_rs2 = 0b11) (rd_rs1: cxreg, rs2: cxreg),
+    CJ        ("c.j",        0b01, cj,  funct3 = 0b101) (imm: cimm11_1),
+    CBeqz     ("c.beqz",     0b01, cb,  funct3 = 0b110) (rs1: cxreg, imm: cimm8_1),
+    CBnez     ("c.bnez",     0b01, cb,  funct3 = 0b111) (rs1: cxreg, imm: cimm8_1),
+    CSlli     ("c.slli",     0b10, ci,  funct3 = 0b000) (rd_rs1: xreg, imm: cnzuimm5_0),
     // CFldSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CLwSp     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CFlwSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CJr       ( "c.jr",    0b10, ci,  funct3 = 0b100, imm_h = 0b0, imm_l = 0b00000) (rs1: xreg),
-    // CMv       ( "c.mv",    0b10, ci,  funct3 = 0b100, imm_h = 0b0) (rd: xreg, rs2:xreg, imm: nzuimm),
-    // CEBreak   ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CJalr     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CAdd      ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    CLwSp     ( "c.lwsp",    0b10, ci,  funct3 = 0b010) (rd: xreg, imm: cuimm7_2_cl),
+    CFlwSp    ( "c.flwsp",   0b10, ci,  funct3 = 0b011) (rd: freg, imm: cuimm7_2_cl),
+
+    CJr       ("c.jr",       0b10, cr,  funct4 = 0b1000, rs2 = 0b00000) (rs1: xreg_cr),
+    CMv       ("c.mv",       0b10, cr,  funct4 = 0b1000) (rd: xreg, rs2: xreg_cr),
+    CEBreak   ("c.slli",     0b10, cr,  funct4 = 0b1001, rd_rs1 = 0b00000, rs2 = 0b00000) (),
+    CJalr     ("c.slli",     0b10, cr,  funct4 = 0b1001, rs2 = 0b00000) (rs1: xreg_cr),
+    CAdd      ("c.slli",     0b10, cr,  funct4 = 0b1001) (rd_rs1: xreg, rs2: xreg_cr),
     // CFsdSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CSwSp     ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
-    // CFswSp    ( "c.slli",    0b10, ci) (rd: xreg, imm: nzuimm),
+    CSwSp     ( "c.slli",    0b10, ci,  funct3 = 0b110) (rs2: xreg_cr, imm: cuimm7_2_cs),
+    CFswSp    ( "c.slli",    0b10, ci,  funct3 = 0b111) (rs2: freg_cr, imm: cuimm7_2_cs),
 
     // RV32F
     Flw     ("flw",       0b000_0111, i, funct3 = 0b010)                                     (rd: freg, rs1: xreg, imm: itype_signed),
@@ -1364,6 +1519,16 @@ asm_display! {
     Csrrsi ("{},{},{}", i.rd(), i.csr(), i.uimm()),
     Csrrci ("{},{},{}", i.rd(), i.csr(), i.uimm()),
 
+    // RV32M
+    Mul    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    MulH   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    MulHsu ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    MulHu  ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Div    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    DivU   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    Rem    ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+    RemU   ("{},{},{}", i.rd(), i.rs1(), i.rs2()),
+
     // RV32C
     CAddi4SpN ("{},{}", i.rd(), i.imm()),
     CLw       ("{},{}({})", i.rd(), i.imm(), i.rs1()),
@@ -1373,6 +1538,31 @@ asm_display! {
     CNop,
     CAddi     ("{},{}", i.rd_rs1(), i.imm()),
     CJal      ("{}", i.imm()),
+    CLi       ("{},{}", i.rd(), i.imm()),
+    CAddi16Sp ("{}", i.imm()),
+    CLui      ("{},{}", i.rd(), i.imm()),
+    CSrli     ("{},{}", i.rd_rs1(), i.imm()),
+    CSrai     ("{},{}", i.rd_rs1(), i.imm()),
+    CAndi     ("{},{}",i.rd_rs1(), i.imm()),
+    CSub      ("{},{}", i.rd_rs1(), i.rs2()),
+    CXor      ("{},{}", i.rd_rs1(), i.rs2()),
+    COr       ("{},{}", i.rd_rs1(), i.rs2()),
+    CAnd      ("{},{}", i.rd_rs1(), i.rs2()),
+    CJ        ("{}", i.imm()),
+    CBeqz     ("{},{}", i.rs1(), i.imm()),
+    CBnez     ("{},{}", i.rs1(), i.imm()),
+    CSlli     ("{},{}", i.rd_rs1(), i.imm()),
+    // CFldSp    ("{}"),
+    CLwSp     ("{},{}", i.rd(), i.imm()),
+    CFlwSp    ("{},{}", i.rd(), i.imm()),
+    CJr       ("{}", i.rs1()),
+    CMv       ("{},{}", i.rd(), i.rs2()),
+    CEBreak,
+    CJalr     ("{}", i.rs1()),
+    CAdd      ("{},{}", i.rd_rs1(), i.rs2()),
+    // CFsdSp    ("{}"),
+    CSwSp     ("{},{}", i.rs2(), i.imm()),
+    CFswSp    ("{},{}", i.rs2(), i.imm()),
 
     // RV32F
     Flw    ("{},{}({})", i.rd(), i.imm(), i.rs1()),

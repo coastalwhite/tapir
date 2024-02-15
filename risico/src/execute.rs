@@ -225,7 +225,7 @@ impl<M: BackingStore> State<M> {
     pub fn instruction_execute(&mut self, instruction: rvhwfuzzer_encoding::Instruction) {
         use rvhwfuzzer_encoding::Instruction::*;
 
-        let mut next_pc = self.pc().offset(4);
+        let mut next_pc = self.pc().offset(instruction.num_bytes() as i8);
 
         macro_rules! trigger_trap {
             ($trap:ident) => {{
@@ -1252,6 +1252,379 @@ impl<M: BackingStore> State<M> {
             FenceI(_) => {}
             MRet(_) => {
                 next_pc = Addr::from(self.registers.csr.mepc.read());
+            }
+            Mul(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                self.registers
+                    .set(rd, rs1.as_u32().wrapping_mul(rs2.as_u32()));
+            }
+            MulH(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let rs1 = i64::from(rs1.as_i32());
+                let rs2 = i64::from(rs2.as_i32());
+
+                let result = (rs1.wrapping_mul(rs2) >> 32) as u32;
+
+                self.registers.set(rd, result);
+            }
+            MulHsu(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let rs1 = i64::from(rs1.as_i32()) as u64;
+                let rs2 = u64::from(rs2.as_u32());
+
+                let result = (rs1.wrapping_mul(rs2) >> 32) as u32;
+
+                self.registers.set(rd, result);
+            }
+            MulHu(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let rs1 = u64::from(rs1.as_u32());
+                let rs2 = u64::from(rs2.as_u32());
+
+                let result = (rs1.wrapping_mul(rs2) >> 32) as u32;
+
+                self.registers.set(rd, result);
+            }
+            Div(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let result = if rs2.is_zero() {
+                    -1
+                } else {
+                    rs1.as_i32().checked_div(rs2.as_i32()).unwrap_or(i32::MIN)
+                };
+
+                self.registers.set(rd, result);
+            }
+            DivU(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let result = if rs2.is_zero() {
+                    u32::MAX
+                } else {
+                    rs1.as_u32().wrapping_div(rs2.as_u32())
+                };
+
+                self.registers.set(rd, result);
+            }
+            Rem(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let result = if rs2.is_zero() {
+                    rs1.as_i32()
+                } else {
+                    rs1.as_i32().checked_rem(rs2.as_i32()).unwrap_or(0)
+                };
+
+                self.registers.set(rd, result);
+            }
+            RemU(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rs1);
+                let rs2 = self.registers.get(rs2);
+
+                let result = if rs2.is_zero() {
+                    rs1.as_u32()
+                } else {
+                    rs1.as_u32().wrapping_rem(rs2.as_u32())
+                };
+
+                self.registers.set(rd, result);
+            }
+            CAddi4SpN(args) => {
+                let rd = args.rd().into();
+                let imm = args.imm();
+
+                let sp = self.registers.get(XRegIdent::Sp);
+                let sp = sp.as_u32() + imm;
+
+                self.registers.set(rd, sp);
+            }
+            CLw(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let offset = i16::from(args.imm());
+
+                let rs1 = self.registers().get(rs1.into());
+                let addr = rs1.as_addr().offset(offset);
+
+                let value = self.memory.get(addr);
+                self.registers.set(rd.into(), value);
+            }
+            CFlw(args) => {
+                let rd = args.rd();
+                let rs1 = args.rs1();
+                let offset = i16::from(args.imm());
+
+                let rs1 = self.registers().get(rs1.into());
+                let addr = rs1.as_addr().offset(offset);
+
+                let value = self.memory.get(addr);
+                self.registers.set_freg(rd.into(), f32::from_bits(value));
+            }
+            CSw(args) => {
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let offset = i16::from(args.imm());
+
+                let rs1 = self.registers().get(rs1.into());
+                let rs2 = self.registers().get(rs2.into());
+                let addr = rs1.as_addr().offset(offset);
+
+                self.memory.set(addr, rs2.as_u32());
+            }
+            CFsw(args) => {
+                let rs1 = args.rs1();
+                let rs2 = args.rs2();
+                let offset = i16::from(args.imm());
+
+                let rs1 = self.registers().get(rs1.into());
+                let rs2 = self.registers().get_freg(rs2.into());
+                let addr = rs1.as_addr().offset(offset);
+
+                self.memory.set(addr, rs2.to_bits());
+            }
+            CNop(_) => {}
+            CAddi(args) => {
+                let rd_rs1 = args.rd_rs1();
+                let imm = args.imm();
+
+                let rs1 = self.registers().get(rd_rs1);
+                let rs1 = rs1.as_i32() + i32::from(imm);
+
+                self.registers.set(rd_rs1, rs1);
+            }
+            CJal(args) => {
+                self.registers.set(XRegIdent::Ra, self.pc().offset(2));
+                next_pc = self.pc().offset(args.imm());
+            }
+            CLi(args) => {
+                let rd = args.rd();
+                let imm = args.imm();
+
+                self.registers.set(rd, imm);
+            }
+            CAddi16Sp(args) => {
+                let imm = args.imm();
+
+                let sp = self.registers.get(XRegIdent::Sp);
+                let sp = sp.as_i32() + i32::from(imm);
+
+                self.registers.set(XRegIdent::Sp, sp);
+            }
+            CLui(args) => {
+                let rd = args.rd();
+                let imm = args.imm();
+
+                self.registers.set(rd, imm);
+            }
+            CSrli(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let imm = args.imm();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let value = rs1.as_u32() >> imm;
+
+                self.registers.set(rd_rs1, value);
+            }
+            CSrai(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let imm = args.imm();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let value = rs1.as_i32() >> imm;
+
+                self.registers.set(rd_rs1, value);
+            }
+            CAndi(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let imm = i32::from(args.imm());
+
+                let rs1 = self.registers.get(rd_rs1);
+                let value = rs1.as_i32() & imm;
+
+                self.registers.set(rd_rs1, value);
+            }
+            CSub(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let rs2 = args.rs2().into();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let rs2 = self.registers.get(rs2);
+
+                self.registers.set(rd_rs1, rs1 - rs2);
+            }
+            CXor(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let rs2 = args.rs2().into();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let rs2 = self.registers.get(rs2);
+
+                self.registers.set(rd_rs1, rs1 ^ rs2);
+            }
+            COr(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let rs2 = args.rs2().into();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let rs2 = self.registers.get(rs2);
+
+                self.registers.set(rd_rs1, rs1 | rs2);
+            }
+            CAnd(args) => {
+                let rd_rs1 = args.rd_rs1().into();
+                let rs2 = args.rs2().into();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let rs2 = self.registers.get(rs2);
+
+                self.registers.set(rd_rs1, rs1 & rs2);
+            }
+            CJ(args) => {
+                next_pc = self.pc().offset(args.imm());
+            }
+            CBeqz(args) => {
+                let rs1 = args.rs1().into();
+
+                let rs1 = self.registers.get(rs1);
+
+                if rs1.is_zero() {
+                    next_pc = self.pc().offset(args.imm());
+                }
+            }
+            CBnez(args) => {
+                let rs1 = args.rs1().into();
+
+                let rs1 = self.registers.get(rs1);
+
+                if !rs1.is_zero() {
+                    next_pc = self.pc().offset(args.imm());
+                }
+            }
+            CSlli(args) => {
+                let rd_rs1 = args.rd_rs1();
+                let imm = args.imm();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let value = rs1.as_u32() << imm;
+
+                self.registers.set(rd_rs1, value);
+            }
+            CLwSp(args) => {
+                let rd = args.rd();
+                let offset = i16::from(args.imm());
+
+                let addr = self.registers.get(XRegIdent::Sp).as_addr().offset(offset);
+                let value = self.memory().get(addr);
+
+                self.registers.set(rd, value);
+            }
+            CFlwSp(args) => {
+                let rd = args.rd();
+                let offset = i16::from(args.imm());
+
+                let addr = self.registers.get(XRegIdent::Sp).as_addr().offset(offset);
+                let value = self.memory().get(addr);
+
+                self.registers.set_freg(rd, f32::from_bits(value));
+            }
+            CJr(args) => {
+                let rs = args.rs1();
+                let rs1 = self.registers.get(rs).as_addr();
+                next_pc = rs1;
+            }
+            CMv(args) => {
+                let rd = args.rd();
+                let rs2 = args.rs2();
+
+                let value = self.registers.get(rs2);
+                self.registers.set(rd, value);
+            }
+            CEBreak(_) => todo!(),
+            CJalr(args) => {
+                let rs = args.rs1();
+
+                let rs1 = self.registers.get(rs).as_addr();
+                self.registers.set(XRegIdent::Ra, self.pc().offset(2));
+                next_pc = rs1;
+            }
+            CAdd(args) => {
+                let rd_rs1 = args.rd_rs1();
+                let rs2 = args.rs2();
+
+                let rs1 = self.registers.get(rd_rs1);
+                let rs2 = self.registers.get(rs2);
+
+                self.registers.set(rd_rs1, rs1 + rs2);
+            }
+            CSwSp(args) => {
+                let rs2 = args.rs2();
+                let offset = args.imm();
+
+                let addr = self
+                    .registers
+                    .get(XRegIdent::Sp)
+                    .as_addr()
+                    .offset(i16::from(offset));
+                let value = self.registers.get(rs2);
+
+                self.memory.set(addr, value.as_u32());
+            }
+            CFswSp(args) => {
+                let rs2 = args.rs2();
+                let offset = args.imm();
+
+                let addr = self
+                    .registers
+                    .get(XRegIdent::Sp)
+                    .as_addr()
+                    .offset(i16::from(offset));
+                let value = self.registers.get_freg(rs2);
+
+                self.memory.set(addr, value.to_bits());
             } // Environment(variant) => {
               //     self.instruction_counter += 1;
               //     match variant {

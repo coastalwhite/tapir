@@ -344,6 +344,8 @@ def main():
 
     CATEGORY_WHITELIST = [
         'rv32ui',
+        'rv32um',
+        'rv32uc',
         'rv32uf',
     ]
     TVM_WHITELIST = [
