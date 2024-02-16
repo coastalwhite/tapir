@@ -10,6 +10,18 @@ fn _syscall_exit(returncode: i32) -> ! {
     }
 }
 
+#[inline(always)]
+fn _syscall_write_value(value: u32) {
+    unsafe {
+        ::core::arch::asm!(
+            "ecall",
+            in("x17") 1,
+            in("x10") value,
+            options(nomem),
+        )
+    }
+}
+
 pub trait AssertType {
     const ASSERT_TYPE_VALUE: u32;
     fn as_u32(self) -> u32;

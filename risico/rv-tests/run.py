@@ -261,9 +261,11 @@ def main():
         log_error(f'Failed to compile risico')
         eprint(e.stderr.decode())
         eprint()
+        exit(1)
     except Exception as e:
         log_error(f'Failed to compile risico. Reason: {e}')
         eprint(traceback.format_exc())
+        exit(1)
 
     try:
         shutil.rmtree(project_dirs['OUTPUT'])

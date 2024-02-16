@@ -610,7 +610,7 @@ macro_rules! field_encode {
     ($v:expr, imm: cnzuimm5_0) =>   { encode_fragmented!($v, 12,6:2; 0) };
     ($v:expr, imm: cimm8_1) =>   { encode_fragmented!($v, 12,6:5,2,11:10,4:3; 1) };
     ($v:expr, imm: cuimm7_2_cs) =>   { encode_fragmented!($v, 8:7,12:9; 2) };
-    ($v:expr, imm: cuimm7_2_cl) =>   { encode_fragmented!($v, 12,3:2,6:4; 2) };
+    ($v:expr, imm: cuimm7_2_cl) =>   { encode_fragmented!($v, 3:2,12,6:4; 2) };
     ($v:ident, fm) => { ($v.0 as u32) << 28 };
     ($v:ident, pred) => { ($v.encode() as u32) << 24 };
     ($v:ident, succ) => { ($v.encode() as u32) << 20 };
@@ -689,7 +689,7 @@ macro_rules! field_decode {
     ($bs:expr, imm: cnzuimm5_0) =>   { decode_unsigned_fragmented!($bs, 12,6:2; 0) as u8 };
     ($bs:expr, imm: cimm8_1) =>   { decode_signed_fragmented!($bs, 12,6:5,2,11:10,4:3; 1) as i16 };
     ($bs:expr, imm: cuimm7_2_cs) =>   { decode_unsigned_fragmented!($bs, 8:7,12:9; 2) as u8 };
-    ($bs:expr, imm: cuimm7_2_cl) =>   { decode_unsigned_fragmented!($bs, 12,3:2,6:4; 2) as u8 };
+    ($bs:expr, imm: cuimm7_2_cl) =>   { decode_unsigned_fragmented!($bs, 3:2,12,6:4; 2) as u8 };
     ($bs:expr, fm) => { FenceMode((($bs >> 28) & 0xF) as u8) };
     ($bs:expr, pred) => { FenceOrder::take_masked($bs >> 24) };
     ($bs:expr, succ) => { FenceOrder::take_masked($bs >> 20) };
