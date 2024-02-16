@@ -345,6 +345,7 @@ def main():
                 eprint(traceback.format_exc())
 
     CATEGORY_WHITELIST = [
+        'rv32mi',
         'rv32ui',
         'rv32um',
         'rv32uc',

@@ -14,6 +14,7 @@ use crate::driver::cache::CacheResult;
 use crate::memory::{BackingStore, MappedMemory};
 use crate::repr::{Addr, Offset, Size, Word};
 use crate::syscall::{SystemCallBehavior, SystemCallResult};
+use crate::trap::TrapBehavior;
 use crate::util::{is_signaling_nan, sign_extend};
 
 #[repr(u8)]
@@ -55,7 +56,7 @@ pub struct State<M: BackingStore> {
     registers: Registers,
     isa: Isa,
     syscall_behavior: SystemCallBehavior,
-    abort_on_missing_csr: bool,
+    trap_behavior: TrapBehavior,
     memory: M,
     instruction_counter: u64,
 }
@@ -137,7 +138,13 @@ impl<M: BackingStore> Debug for State<M> {
 }
 
 impl<M: BackingStore> State<M> {
-    pub fn new(isa: Isa, syscall_behavior: SystemCallBehavior, entry: u32, memory: M) -> Self {
+    pub fn new(
+        isa: Isa,
+        syscall_behavior: SystemCallBehavior,
+        trap_behavior: TrapBehavior,
+        entry: u32,
+        memory: M,
+    ) -> Self {
         let registers = Registers {
             pc: entry.into(),
             xregs: [0.into(); 31],
@@ -149,7 +156,7 @@ impl<M: BackingStore> State<M> {
             registers,
             isa,
             syscall_behavior,
-            abort_on_missing_csr: true,
+            trap_behavior,
             memory,
             instruction_counter: 0,
         }
@@ -208,18 +215,18 @@ impl<M: BackingStore> State<M> {
         Word::from(self.memory.get(self.pc()))
     }
 
-    pub fn instruction_decode(&mut self, imemory: Word) -> rvhwfuzzer_encoding::Instruction {
+    pub fn instruction_decode(
+        &mut self,
+        imemory: Word,
+    ) -> Option<rvhwfuzzer_encoding::Instruction> {
         let mut imemory_bytes = &imemory.to_le_bytes()[..];
         let Some(instruction) =
             rvhwfuzzer_encoding::Instruction::decode(&mut imemory_bytes).unwrap()
         else {
-            panic!(
-                "unknown instruction 0x{:08x} at pc=0x{:08x}",
-                imemory.as_addr(),
-                self.pc()
-            );
+            return None;
         };
-        instruction
+
+        Some(instruction)
     }
 
     pub fn instruction_execute(&mut self, instruction: rvhwfuzzer_encoding::Instruction) {
@@ -229,6 +236,18 @@ impl<M: BackingStore> State<M> {
 
         macro_rules! trigger_trap {
             ($trap:ident) => {{
+                if self
+                    .trap_behavior
+                    .contains(TrapBehavior::abort_on_trap(TrapCause::$trap))
+                {
+                    eprintln!(
+                        "[ABORT][PC=0x{:08x}]: Trap '{}'",
+                        self.pc(),
+                        stringify!($trap)
+                    );
+                    std::process::exit(1);
+                }
+
                 self.registers.csr.mepc.write(next_pc.as_u32());
                 let addr = self
                     .registers
@@ -1121,7 +1140,7 @@ impl<M: BackingStore> State<M> {
                 let rs = self.registers().get(rs);
 
                 let Ok(value) = self.registers.csr.write(csr, rs.as_u32()) else {
-                    if self.abort_on_missing_csr {
+                    if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRW] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
@@ -1144,7 +1163,7 @@ impl<M: BackingStore> State<M> {
                 };
 
                 let Ok(value) = value else {
-                    if self.abort_on_missing_csr {
+                    if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRS] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
@@ -1167,7 +1186,7 @@ impl<M: BackingStore> State<M> {
                 };
 
                 let Ok(value) = value else {
-                    if self.abort_on_missing_csr {
+                    if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRC] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
@@ -1183,7 +1202,7 @@ impl<M: BackingStore> State<M> {
                 let uimm = args.uimm();
 
                 let Ok(value) = self.registers.csr.write(csr, uimm.into()) else {
-                    if self.abort_on_missing_csr {
+                    if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRWI] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
@@ -1199,7 +1218,7 @@ impl<M: BackingStore> State<M> {
                 let uimm = args.uimm();
 
                 let Ok(value) = self.registers.csr.update(csr, |v| v | u32::from(uimm)) else {
-                    if self.abort_on_missing_csr {
+                    if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRSI] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
@@ -1215,7 +1234,7 @@ impl<M: BackingStore> State<M> {
                 let uimm = args.uimm();
 
                 let Ok(value) = self.registers.csr.update(csr, |v| v & !u32::from(uimm)) else {
-                    if self.abort_on_missing_csr {
+                    if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRCI] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
@@ -1625,47 +1644,7 @@ impl<M: BackingStore> State<M> {
                 let value = self.registers.get_freg(rs2);
 
                 self.memory.set(addr, value.to_bits());
-            } // Environment(variant) => {
-              //     self.instruction_counter += 1;
-              //     match variant {
-              //         EnvironmentVariant::Call => {
-              //             match self
-              //                 .syscall_behavior
-              //                 .handle(&mut self.registers, &mut self.memory)
-              //             {
-              //                 SystemCallResult::Return(_) => {}
-              //                 SystemCallResult::Exit(error_code) => {
-              //                     std::process::exit(error_code);
-              //                 }
-              //                 SystemCallResult::Abort => {
-              //                     println!("Process Aborted through System Call.");
-              //                     std::process::exit(1);
-              //                 }
-              //                 SystemCallResult::InvalidSystemCallNr => {
-              //                     println!("Invalid System Call was called.");
-              //                     std::process::exit(1);
-              //                 }
-              //             }
-              //         }
-              //         EnvironmentVariant::Break => self.environment_break(),
-              //     }
-              // }
-              // CsrRegister(args) => {
-              //     self.instruction_counter += 1;
-              //
-              //     match args.csr {
-              //         // RDCYCLE
-              //         3072 => {
-              //             self.registers.set(args.rd, self.instruction_counter as u32);
-              //         }
-              //         _ => unimplemented!(),
-              //     }
-              // }
-              // CsrImmediate(_args) => {
-              //     self.instruction_counter += 1;
-              //
-              //     todo!()
-              // }
+            }
         };
 
         self.registers.pc = next_pc;
@@ -1709,12 +1688,37 @@ impl<M: BackingStore> State<M> {
     }
 
     pub fn execute_mut(&mut self) {
-        // if Into::<Word>::into(self.pc()).as_u32() >= 0x8000_016C {
-        //     self.environment_break();
-        // }
-
         let imemory = self.instruction_fetch();
-        let instruction = self.instruction_decode(imemory);
+        let Some(instruction) = self.instruction_decode(imemory) else {
+            if self
+                .trap_behavior
+                .contains(TrapBehavior::abort_on_trap(TrapCause::IllegalInstruction))
+            {
+                eprintln!(
+                    "[ABORT][PC=0x{:08x}]: Illegal Instruction '0x{:08x}'",
+                    self.pc(),
+                    imemory.as_u32()
+                );
+                std::process::exit(1);
+            }
+
+            let instr_num_bytes = if imemory.to_le_bytes()[0] == 0b11 {
+                4
+            } else {
+                2
+            };
+            let next_pc = self.pc().offset(instr_num_bytes);
+
+            self.registers.csr.mepc.write(next_pc.as_u32());
+            let addr = self
+                .registers
+                .csr
+                .mtvec
+                .cause_addr(TrapCause::IllegalInstruction)
+                .unwrap();
+            self.registers.pc = Addr::from(addr);
+            return;
+        };
         self.instruction_execute(instruction)
     }
 

@@ -120,7 +120,13 @@ fn main() {
                 }
             }
 
-            let mut state = State::new(Isa::Rv32I, cli.system_call_behavior(), entry, memory);
+            let mut state = State::new(
+                Isa::Rv32I,
+                cli.system_call_behavior(),
+                cli.trap_behavior(),
+                entry,
+                memory,
+            );
 
             let mut trace_file = cli.trace().map(|trace| {
                 std::fs::OpenOptions::new()
@@ -172,7 +178,7 @@ fn main() {
                 return;
             }
 
-            raw_image.execute(flags.entry(), cli.system_call_behavior());
+            raw_image.execute(flags.entry(), cli.system_call_behavior(), cli.trap_behavior());
 
             todo!()
         }
@@ -193,6 +199,7 @@ fn main() {
             let runtime_parameters = RuntimeParameters::new(
                 Isa::Rv32I,
                 cli.system_call_behavior(),
+                cli.trap_behavior(),
                 0x0,
                 device_config.take_sections(),
             );

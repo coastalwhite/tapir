@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::device_config::Isa;
 use crate::memory::{BackingStore, MappedMemory};
 use crate::repr::Addr;
+use crate::trap::TrapBehavior;
 use crate::{State, SystemCallBehavior};
 
 pub struct RawImage {
@@ -28,7 +29,11 @@ impl RawImage {
             let i = i * 4;
             let i_len = format!("{i}").len();
             let Ok(instr_data) = instr_data.try_into() else {
-                write!(stdout, "{i}:{i_padding}", i_padding = " ".repeat(12 - i_len - 1))?;
+                write!(
+                    stdout,
+                    "{i}:{i_padding}",
+                    i_padding = " ".repeat(12 - i_len - 1)
+                )?;
                 for b in instr_data {
                     write!(stdout, "{b:02x}")?;
                 }
@@ -50,10 +55,15 @@ impl RawImage {
         Ok(())
     }
 
-    pub fn execute(&self, entry: u32, syscall_behavior: SystemCallBehavior) {
+    pub fn execute(
+        &self,
+        entry: u32,
+        syscall_behavior: SystemCallBehavior,
+        trap_behavior: TrapBehavior,
+    ) {
         let mut memory = MappedMemory::full();
         memory.write_to(Addr::default(), &self.buffer);
-        let mut state = State::new(Isa::Rv32I, syscall_behavior, entry, memory);
+        let mut state = State::new(Isa::Rv32I, syscall_behavior, trap_behavior, entry, memory);
 
         loop {
             state.execute_mut();

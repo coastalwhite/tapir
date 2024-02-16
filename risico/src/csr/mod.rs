@@ -238,8 +238,22 @@ csrs! {
 
 pub struct CsrInitContext {}
 
+#[repr(u8)]
 pub enum Mode {
-    Machine,
-    Supervisor,
-    User,
+    User = 0b00,
+    Supervisor = 0b01,
+    Reserved10 = 0b10,
+    Machine = 0b11,
+}
+
+impl Mode {
+    pub const fn take_masked(x: u32) -> Self {
+        match x & 0b11 {
+            0b00 => Self::User,
+            0b01 => Self::Supervisor,
+            0b10 => Self::Reserved10,
+            0b11 => Self::Machine,
+            _ => unreachable!(),
+        }
+    }
 }

@@ -1,4 +1,7 @@
+use std::iter::FusedIterator;
+
 use risico::syscall::SystemCallBehavior;
+use risico::trap::TrapBehavior;
 
 static BASIC_USAGE: &str = r#"
 Usage: risico <FILE> [flags]
@@ -20,6 +23,7 @@ Flags:
  -D / --device-config: use a device config file
  -h / --help: show the usage string
  -S / --syscalls <system call handler>: how to handle system calls
+ -t / --traps <trap handler>: how to handle traps
  -L / --logging <list of logging topics>: which logging to perform
  -T / --trace <output file>: output a trace to a file
 
@@ -48,6 +52,7 @@ pub struct CliFlags {
     do_dump: bool,
     run_type: RunType,
     system_call_behavior: SystemCallBehavior,
+    trap_behavior: TrapBehavior,
     logging: LoggingConfiguration,
     trace: Option<String>,
 }
@@ -87,6 +92,80 @@ fn parse_syscall_behavior(s: &str) -> Option<SystemCallBehavior> {
     }
 }
 
+struct ArgIter<'a>(&'a str);
+
+impl<'a> Iterator for &mut ArgIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_empty() {
+            return None;
+        }
+
+        for (i, c) in self.0.char_indices() {
+            match c {
+                ',' if i == 0 => self.0 = &self.0[1..],
+                ';' if i == 0 => return None,
+                ',' => {
+                    let item = &self.0[..i];
+                    self.0 = &self.0[i + 1..];
+                    return Some(item)
+                },
+                ';' => {
+                    let item = &self.0[..i];
+                    self.0 = &self.0[i..];
+                    return Some(item)
+                },
+                _ => {},
+            }
+        }
+
+        let item = self.0;
+        self.0 = "";
+        Some(item)
+    }
+}
+
+impl<'a> FusedIterator for &mut ArgIter<'a> {}
+
+fn parse_trap_behavior(s: &str) -> Option<TrapBehavior> {
+    let mut s = s;
+    let mut trap_behavior = TrapBehavior::empty();
+
+    loop {
+        s = s.trim();
+        
+        if s.is_empty() {
+            break;
+        }
+
+        if s.starts_with("abort") {
+            s = &s["abort".len()..];
+            if s.starts_with('=') {
+                s = &s['='.len_utf8()..];
+            } else {
+                return None;
+            }
+
+            let mut args = ArgIter(s);
+
+            for arg in &mut args {
+                match arg {
+                    "illegal_instr" => trap_behavior |= TrapBehavior::ABORT_ON_ILLEGAL_INSTRUCTION,
+                    "missing_csr" => trap_behavior |= TrapBehavior::ABORT_ON_MISSING_CSR,
+                    _ => return None,
+                }
+            }
+
+            s = args.0;
+        } else {
+            return None;
+        }
+    }
+
+    Some(trap_behavior)
+}
+
 fn parse_logging_config(s: &str) -> Option<LoggingConfiguration> {
     let mut config = LoggingConfiguration::default();
 
@@ -121,6 +200,7 @@ impl CliFlags {
         let mut do_fail = false;
         let mut raw_image_flags = RawImageFlags::default();
         let mut run_type = RunType::SyscallEmulation;
+        let mut trap_behavior = TrapBehavior::empty();
         let mut system_call_behavior = SystemCallBehavior::Linux;
         let mut logging = LoggingConfiguration {
             show_instructions: false,
@@ -175,6 +255,21 @@ impl CliFlags {
                     };
 
                     system_call_behavior = syscall_behavior;
+                }
+                "--traps" | "-t" => {
+                    let Some(set_trap_behavior) = args.next() else {
+                        eprintln!("No trap behavior given");
+                        do_fail = true;
+                        continue;
+                    };
+
+                    let Some(set_trap_behavior) = parse_trap_behavior(&set_trap_behavior) else {
+                        eprintln!("Trap behavior '{set_trap_behavior}' is invalid");
+                        do_fail = true;
+                        continue;
+                    };
+
+                    trap_behavior = set_trap_behavior;
                 }
                 "--logging" | "-L" => {
                     let Some(logging_config) = args.next() else {
@@ -239,6 +334,7 @@ impl CliFlags {
             do_dump,
             run_type,
             system_call_behavior,
+            trap_behavior,
             logging,
             trace,
         }
@@ -258,6 +354,10 @@ impl CliFlags {
 
     pub fn system_call_behavior(&self) -> SystemCallBehavior {
         self.system_call_behavior
+    }
+
+    pub fn trap_behavior(&self) -> TrapBehavior {
+        self.trap_behavior
     }
 
     pub fn logging(&self) -> &LoggingConfiguration {

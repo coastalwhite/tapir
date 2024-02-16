@@ -123,9 +123,6 @@ impl SystemCallConvention for TestingConvention {
                 let lhs = args[1];
                 let rhs = args[2];
 
-                dbg!(lhs);
-                dbg!(rhs);
-
                 if lhs != rhs {
                     match input_type {
                         AssertType::Unknown => {
