@@ -1,7 +1,0 @@
-[package]
-name = "kiwi-rust-codegen"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-kiwi-toml.path = "../kiwi-toml"
