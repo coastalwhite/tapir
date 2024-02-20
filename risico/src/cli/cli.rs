@@ -1,6 +1,6 @@
 use std::iter::FusedIterator;
 
-use risico::syscall::SystemCallBehavior;
+use risico::syscall::ECallBehavior;
 use risico::trap::TrapBehavior;
 
 static BASIC_USAGE: &str = r#"
@@ -51,7 +51,7 @@ pub struct CliFlags {
     file: String,
     do_dump: bool,
     run_type: RunType,
-    system_call_behavior: SystemCallBehavior,
+    system_call_behavior: ECallBehavior,
     trap_behavior: TrapBehavior,
     logging: LoggingConfiguration,
     trace: Option<String>,
@@ -83,87 +83,51 @@ fn parse_u32(s: &str) -> Option<u32> {
     }
 }
 
-fn parse_syscall_behavior(s: &str) -> Option<SystemCallBehavior> {
+fn parse_ecall_behavior(s: &str) -> Option<ECallBehavior> {
     match s.trim() {
-        "abort" => Some(SystemCallBehavior::Abort),
-        "testing" => Some(SystemCallBehavior::Testing),
-        "linux" => Some(SystemCallBehavior::Linux),
+        "testing" => Some(ECallBehavior::Testing),
+        "linux" => Some(ECallBehavior::Linux),
+        "trapvec" => Some(ECallBehavior::TrapVector),
         _ => None,
     }
 }
 
-struct ArgIter<'a>(&'a str);
-
-impl<'a> Iterator for &mut ArgIter<'a> {
-    type Item = &'a str;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.0.is_empty() {
-            return None;
-        }
-
-        for (i, c) in self.0.char_indices() {
-            match c {
-                ',' if i == 0 => self.0 = &self.0[1..],
-                ';' if i == 0 => return None,
-                ',' => {
-                    let item = &self.0[..i];
-                    self.0 = &self.0[i + 1..];
-                    return Some(item)
-                },
-                ';' => {
-                    let item = &self.0[..i];
-                    self.0 = &self.0[i..];
-                    return Some(item)
-                },
-                _ => {},
+fn parse_trap_cause(s: &str) -> Result<TrapBehavior, String> {
+    macro_rules! causes {
+        (@delimited $fst:literal) => {{ $f }};
+        (@delimited $fst:literal$(, $after:literal)+) => {{ concat!($fst$(, ", ", $after)+) }};
+        ($($trap_cause:literal => $behavior:expr),+ $(,)?) => {
+            match s {
+                $(
+                $trap_cause => Ok($behavior),
+                )+
+                _ => Err(format!("Invalid trap cause specifier '{s}'. Allowed values: {}", causes!(@delimited $($trap_cause),+))),
             }
-        }
-
-        let item = self.0;
-        self.0 = "";
-        Some(item)
-    }
-}
-
-impl<'a> FusedIterator for &mut ArgIter<'a> {}
-
-fn parse_trap_behavior(s: &str) -> Option<TrapBehavior> {
-    let mut s = s;
-    let mut trap_behavior = TrapBehavior::empty();
-
-    loop {
-        s = s.trim();
-        
-        if s.is_empty() {
-            break;
-        }
-
-        if s.starts_with("abort") {
-            s = &s["abort".len()..];
-            if s.starts_with('=') {
-                s = &s['='.len_utf8()..];
-            } else {
-                return None;
-            }
-
-            let mut args = ArgIter(s);
-
-            for arg in &mut args {
-                match arg {
-                    "illegal_instr" => trap_behavior |= TrapBehavior::ABORT_ON_ILLEGAL_INSTRUCTION,
-                    "missing_csr" => trap_behavior |= TrapBehavior::ABORT_ON_MISSING_CSR,
-                    _ => return None,
-                }
-            }
-
-            s = args.0;
-        } else {
-            return None;
-        }
+        };
     }
 
-    Some(trap_behavior)
+    causes! {
+        "all" => TrapBehavior::abort_all(),
+        "ecall" => TrapBehavior::ABORT_ON_ENV_CALL_FROM_U_MODE | TrapBehavior::ABORT_ON_ENV_CALL_FROM_S_MODE | TrapBehavior::ABORT_ON_ENV_CALL_FROM_M_MODE,
+        "instr_misaligned" => TrapBehavior::ABORT_ON_INSTR_ADDRESS_MISALIGNED,
+        "instr_access_fault" => TrapBehavior::ABORT_ON_INSTR_ACCESS_FAULT,
+        "illegal_instr" => TrapBehavior::ABORT_ON_ILLEGAL_INSTRUCTION,
+        "breakpoint" => TrapBehavior::ABORT_ON_BREAKPOINT,
+        "load_misaligned" => TrapBehavior::ABORT_ON_LOAD_ADDR_MISALIGNED,
+        "load_access_fault" => TrapBehavior::ABORT_ON_LOAD_ACCESS_FAULT,
+        "store_amo_misaligned" => TrapBehavior::ABORT_ON_STORE_AMO_ADDRESS_MISALIGNED,
+        "store_amo_access_fault" => TrapBehavior::ABORT_ON_STORE_AMO_ACCESS_FAULT,
+        "smode_ecall" => TrapBehavior::ABORT_ON_ENV_CALL_FROM_S_MODE,
+        "umode_ecall" => TrapBehavior::ABORT_ON_ENV_CALL_FROM_U_MODE,
+        // "reserved10" => TrapBehavior::ABORT_ON_RESERVED_10,
+        "mmode_ecall" => TrapBehavior::ABORT_ON_ENV_CALL_FROM_M_MODE,
+        "instr_page_fault" => TrapBehavior::ABORT_ON_INSTR_PAGE_FAULT,
+        "load_page_fault" => TrapBehavior::ABORT_ON_LOAD_PAGE_FAULT,
+        // "reserved14" => TrapBehavior::ABORT_ON_RESERVED_14,
+        "store_amo_page_fault" => TrapBehavior::ABORT_ON_STORE_AMO_PAGE_FAULT,
+
+        "missing_csr" => TrapBehavior::ABORT_ON_MISSING_CSR,
+    }
 }
 
 fn parse_logging_config(s: &str) -> Option<LoggingConfiguration> {
@@ -201,7 +165,7 @@ impl CliFlags {
         let mut raw_image_flags = RawImageFlags::default();
         let mut run_type = RunType::SyscallEmulation;
         let mut trap_behavior = TrapBehavior::empty();
-        let mut system_call_behavior = SystemCallBehavior::Linux;
+        let mut system_call_behavior = ECallBehavior::Linux;
         let mut logging = LoggingConfiguration {
             show_instructions: false,
             show_cycles: false,
@@ -248,7 +212,7 @@ impl CliFlags {
                         continue;
                     };
 
-                    let Some(syscall_behavior) = parse_syscall_behavior(&syscall_behavior) else {
+                    let Some(syscall_behavior) = parse_ecall_behavior(&syscall_behavior) else {
                         eprintln!("System call behavior '{syscall_behavior}' is invalid");
                         do_fail = true;
                         continue;
@@ -263,13 +227,30 @@ impl CliFlags {
                         continue;
                     };
 
-                    let Some(set_trap_behavior) = parse_trap_behavior(&set_trap_behavior) else {
-                        eprintln!("Trap behavior '{set_trap_behavior}' is invalid");
-                        do_fail = true;
-                        continue;
+                    let (is_abort, set_trap_behavior) = if let Some(set_trap_behavior) =
+                        set_trap_behavior.strip_suffix("=allow")
+                    {
+                        (false, set_trap_behavior)
+                    } else if let Some(set_trap_behavior) = set_trap_behavior.strip_suffix("=abort")
+                    {
+                        (true, set_trap_behavior)
+                    } else {
+                        (true, &set_trap_behavior[..])
                     };
 
-                    trap_behavior = set_trap_behavior;
+                    match parse_trap_cause(&set_trap_behavior) {
+                        Ok(set_trap_behavior) => {
+                            if is_abort {
+                                trap_behavior |= set_trap_behavior;
+                            } else {
+                                trap_behavior = trap_behavior.set_minus(set_trap_behavior);
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("{}", err);
+                            do_fail = true;
+                        }
+                    }
                 }
                 "--logging" | "-L" => {
                     let Some(logging_config) = args.next() else {
@@ -352,7 +333,7 @@ impl CliFlags {
         &self.run_type
     }
 
-    pub fn system_call_behavior(&self) -> SystemCallBehavior {
+    pub fn system_call_behavior(&self) -> ECallBehavior {
         self.system_call_behavior
     }
 

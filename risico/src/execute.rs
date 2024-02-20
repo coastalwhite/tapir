@@ -7,13 +7,14 @@ use ::softfloat_wrapper::{Float, F32};
 use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
 
 use crate::csr::fcsr::ExceptionFlags;
+use crate::csr::mstatus::ExtStatus;
 use crate::csr::mtvec::TrapCause;
 use crate::csr::ControlStatusRegisters;
 use crate::device_config::Isa;
 use crate::driver::cache::CacheResult;
 use crate::memory::{BackingStore, MappedMemory};
 use crate::repr::{Addr, Offset, Size, Word};
-use crate::syscall::{SystemCallBehavior, SystemCallResult};
+use crate::syscall::{ECallBehavior, SystemCallResult};
 use crate::trap::TrapBehavior;
 use crate::util::{is_signaling_nan, sign_extend};
 
@@ -55,7 +56,7 @@ pub struct Registers {
 pub struct State<M: BackingStore> {
     registers: Registers,
     isa: Isa,
-    syscall_behavior: SystemCallBehavior,
+    syscall_behavior: ECallBehavior,
     trap_behavior: TrapBehavior,
     memory: M,
     instruction_counter: u64,
@@ -105,6 +106,11 @@ impl Registers {
         self.fregs[ident as usize] = value;
         old
     }
+
+    #[inline]
+    pub fn csr(&self) -> &ControlStatusRegisters {
+        &self.csr
+    }
 }
 
 impl<M: BackingStore> Debug for State<M> {
@@ -140,7 +146,7 @@ impl<M: BackingStore> Debug for State<M> {
 impl<M: BackingStore> State<M> {
     pub fn new(
         isa: Isa,
-        syscall_behavior: SystemCallBehavior,
+        syscall_behavior: ECallBehavior,
         trap_behavior: TrapBehavior,
         entry: u32,
         memory: M,
@@ -241,7 +247,7 @@ impl<M: BackingStore> State<M> {
                     .contains(TrapBehavior::abort_on_trap(TrapCause::$trap))
                 {
                     eprintln!(
-                        "[ABORT][PC=0x{:08x}]: Trap '{}'",
+                        "[ABORT][PC=0x{:08x}]: Trap '{}' on '{instruction}'",
                         self.pc(),
                         stringify!($trap)
                     );
@@ -291,7 +297,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs1 = self.registers.get(rs).as_addr();
                 self.registers.set(rd, self.pc().offset(4));
-                next_pc = rs1.offset(args.imm());
+                next_pc = rs1.offset(args.imm()).halfword_align();
             }
             Beq(args) => {
                 let rs1 = args.rs1();
@@ -637,6 +643,10 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1.as_u32() | rs2.as_u32());
             }
             FmaddS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -663,8 +673,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FnmsubS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -691,8 +707,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmsubS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -719,8 +741,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FnmaddS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -747,8 +775,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Fsw(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
                 let imm = args.imm();
@@ -759,8 +793,14 @@ impl<M: BackingStore> State<M> {
                 let dest = rs1.as_addr().offset(imm);
 
                 self.memory.set(dest, rs2.to_bits());
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Flw(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let imm = args.imm();
@@ -771,8 +811,14 @@ impl<M: BackingStore> State<M> {
                 let value = self.memory.get(src);
 
                 self.registers.set_freg(rd, f32::from_bits(value));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmulS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -792,8 +838,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FdivS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -813,8 +865,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FaddS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -838,8 +896,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsubS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -862,8 +926,14 @@ impl<M: BackingStore> State<M> {
                 }
 
                 self.registers.set_freg(rd, f32::from_bits(result));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FltS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -879,8 +949,14 @@ impl<M: BackingStore> State<M> {
                 }
 
                 self.registers.set(rd, u32::from(result));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FminS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -897,8 +973,14 @@ impl<M: BackingStore> State<M> {
                     .fcsr
                     .set_flag(ExceptionFlags::from_bits(flags.as_u8()));
                 self.registers.set_freg(rd, result.to_f32());
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmaxS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -915,8 +997,14 @@ impl<M: BackingStore> State<M> {
                     .fcsr
                     .set_flag(ExceptionFlags::from_bits(flags.as_u8()));
                 self.registers.set_freg(rd, result.to_f32());
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -925,8 +1013,14 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers.get_freg(rs2);
 
                 self.registers.set_freg(rd, rs1.copysign(rs2));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjnS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -935,8 +1029,14 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers.get_freg(rs2);
 
                 self.registers.set_freg(rd, rs1.copysign(-rs2));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjxS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -947,8 +1047,14 @@ impl<M: BackingStore> State<M> {
                 let xor = f32::from_bits(rs1.to_bits() ^ rs2.to_bits());
 
                 self.registers.set_freg(rd, rs1.copysign(xor));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FleS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -964,8 +1070,14 @@ impl<M: BackingStore> State<M> {
                 }
 
                 self.registers.set(rd, u32::from(result));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FeqS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
@@ -981,8 +1093,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers.csr.fcsr.set_flag(flags);
                 self.registers.set(rd, u32::from(result));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtSW(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -996,8 +1114,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtWS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -1009,7 +1133,6 @@ impl<M: BackingStore> State<M> {
                 const F32_I32_MIN: f32 = i32::MIN as f32;
                 const F32_I32_MAX: f32 = i32::MAX as f32;
 
-                dbg!(rs1);
                 let result = if rs1 > F32_I32_MAX || rs1.is_nan() {
                     self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
                     i32::MAX
@@ -1023,13 +1146,16 @@ impl<M: BackingStore> State<M> {
                     self.store_exception_flags();
                     result
                 };
-                dbg!(result);
 
                 self.registers.set(rd, result);
-                let ra = self.registers.get(XRegIdent::Ra).as_i32();
-                eprintln!("RA = {} (0x{:08x})", ra, ra);
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsqrtS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -1049,8 +1175,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtSWu(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -1064,8 +1196,14 @@ impl<M: BackingStore> State<M> {
 
                 self.registers
                     .set_freg(rd, f32::from_bits(result.to_bits()));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtWuS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rm = args.rm();
                 let rd = args.rd();
                 let rs1 = args.rs1();
@@ -1092,8 +1230,14 @@ impl<M: BackingStore> State<M> {
                 };
 
                 self.registers.set(rd, result);
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FclassS(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
 
@@ -1117,20 +1261,32 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, class);
             }
             FmvWX(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
 
                 let rs1 = self.registers.get(rs1);
 
                 self.registers.set_freg(rd, rs1.as_f32());
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmvXW(args) => {
+                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                    trigger_trap!(IllegalInstruction);
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
 
                 let rs1 = self.registers.get_freg(rs1);
 
                 self.registers.set(rd, Word::from_f32(rs1));
+
+                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Csrrw(args) => {
                 let csr = args.csr();
@@ -1245,11 +1401,22 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Ecall(_args) => {
+                if self
+                    .trap_behavior
+                    .contains(TrapBehavior::ABORT_ON_ENV_CALL_FROM_M_MODE)
+                {
+                    eprintln!("[ABORT][PC=0x{:08x}]: Environment Call", self.pc(),);
+                    std::process::exit(1);
+                }
+
                 match self
                     .syscall_behavior
                     .handle(&mut self.registers, &mut self.memory)
                 {
                     SystemCallResult::Return(_) => {}
+                    SystemCallResult::Jump(target) => {
+                        next_pc = target;
+                    }
                     SystemCallResult::Exit(error_code) => {
                         std::process::exit(error_code);
                     }
@@ -1264,8 +1431,7 @@ impl<M: BackingStore> State<M> {
                 }
             }
             Ebreak(_args) => {
-                eprintln!("Environment break called!");
-                std::process::exit(0);
+                trigger_trap!(Breakpoint)
             }
             Fence(_) => {}
             FenceI(_) => {}
@@ -1543,6 +1709,7 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1 & rs2);
             }
             CJ(args) => {
+                dbg!(args.imm());
                 next_pc = self.pc().offset(args.imm());
             }
             CBeqz(args) => {
@@ -1593,7 +1760,7 @@ impl<M: BackingStore> State<M> {
             CJr(args) => {
                 let rs = args.rs1();
                 let rs1 = self.registers.get(rs).as_addr();
-                next_pc = rs1;
+                next_pc = rs1.halfword_align();
             }
             CMv(args) => {
                 let rd = args.rd();
@@ -1608,7 +1775,7 @@ impl<M: BackingStore> State<M> {
 
                 let rs1 = self.registers.get(rs).as_addr();
                 self.registers.set(XRegIdent::Ra, self.pc().offset(2));
-                next_pc = rs1;
+                next_pc = rs1.halfword_align();
             }
             CAdd(args) => {
                 let rd_rs1 = args.rd_rs1();

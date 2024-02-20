@@ -520,6 +520,11 @@ impl Addr {
     }
 
     #[inline]
+    pub fn halfword_align(self) -> Self {
+        Self(self.0 & 0xFFFF_FFFE)
+    }
+
+    #[inline]
     pub fn word_align(self) -> Self {
         Self(self.0 & 0xFFFF_FFFC)
     }

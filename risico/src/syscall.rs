@@ -1,8 +1,9 @@
 use std::io::{stdin, stdout, Read, Write};
 
+use crate::csr::mtvec::TrapCause;
 use crate::execute::Registers;
-use crate::memory::{BackingStore, MappedMemory};
-use crate::repr::Size;
+use crate::memory::BackingStore;
+use crate::repr::Addr;
 
 use rvhwfuzzer_encoding::XRegIdent;
 
@@ -10,15 +11,14 @@ pub enum SystemCallResult {
     Return(Option<u32>),
     InvalidSystemCallNr,
     Exit(i32),
+    Jump(Addr),
     Abort,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum SystemCallBehavior {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ECallBehavior {
+    TrapVector,
     Linux,
-    // TrapToCsr,
-    Abort,
-    // Process,
     Testing,
 }
 
@@ -43,7 +43,6 @@ pub trait SystemCallConvention {
 struct TestingConvention;
 struct LinuxConvention;
 
-
 enum AssertType {
     Unknown = 0,
     U32 = 1,
@@ -65,7 +64,6 @@ impl From<u32> for AssertType {
         }
     }
 }
-
 
 impl SystemCallConvention for TestingConvention {
     type Args = [u32; 6];
@@ -127,15 +125,21 @@ impl SystemCallConvention for TestingConvention {
                     match input_type {
                         AssertType::Unknown => {
                             eprintln!("Assert failed (unknown type): {lhs} != {rhs}");
-                        },
+                        }
                         AssertType::U32 => {
-                            eprintln!("Assert failed (u32): {lhs} (0x{lhs:08x}) != {rhs} (0x{rhs:08x})");
+                            eprintln!(
+                                "Assert failed (u32): {lhs} (0x{lhs:08x}) != {rhs} (0x{rhs:08x})"
+                            );
                         }
                         AssertType::I32 => {
-                            eprintln!("Assert failed (i32): {} != {}", lhs as i32, rhs  as i32);
+                            eprintln!("Assert failed (i32): {} != {}", lhs as i32, rhs as i32);
                         }
                         AssertType::F32 => {
-                            eprintln!("Assert failed (f32): {} (0x{lhs:08X}) != {} (0x{rhs:08X})", f32::from_bits(lhs), f32::from_bits(rhs));
+                            eprintln!(
+                                "Assert failed (f32): {} (0x{lhs:08X}) != {} (0x{rhs:08X})",
+                                f32::from_bits(lhs),
+                                f32::from_bits(rhs)
+                            );
                         }
                         AssertType::Ptr => {
                             eprintln!("Assert failed (ptr): 0x{lhs:08X}) != 0x{rhs:08X}");
@@ -249,10 +253,9 @@ impl SystemCallConvention for LinuxConvention {
     }
 }
 
-impl SystemCallBehavior {
+impl ECallBehavior {
     pub fn handle<M: BackingStore>(self, regs: &mut Registers, memory: &mut M) -> SystemCallResult {
         match self {
-            Self::Abort => SystemCallResult::Abort,
             Self::Testing => {
                 let syscall_nr = TestingConvention::get_syscall_number(regs);
                 let args = TestingConvention::get_args(regs);
@@ -274,6 +277,14 @@ impl SystemCallBehavior {
                 }
 
                 result
+            }
+            Self::TrapVector => {
+                let cause_addr = regs
+                    .csr()
+                    .mtvec
+                    .cause_addr(TrapCause::EcallMmode)
+                    .expect("Invalid MTVEC");
+                SystemCallResult::Jump(Addr::from(cause_addr))
             }
         }
     }

@@ -5,7 +5,7 @@ use crate::device_config::Isa;
 use crate::memory::{BackingStore, MappedMemory};
 use crate::repr::Addr;
 use crate::trap::TrapBehavior;
-use crate::{State, SystemCallBehavior};
+use crate::{State, ECallBehavior};
 
 pub struct RawImage {
     buffer: Vec<u8>,
@@ -58,7 +58,7 @@ impl RawImage {
     pub fn execute(
         &self,
         entry: u32,
-        syscall_behavior: SystemCallBehavior,
+        syscall_behavior: ECallBehavior,
         trap_behavior: TrapBehavior,
     ) {
         let mut memory = MappedMemory::full();

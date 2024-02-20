@@ -21,12 +21,12 @@ pub use execute::State;
 use self::device_config::{Isa, Section};
 use self::memory::MappedMemory;
 use self::ordered_sections::OrderedSections;
-use self::syscall::SystemCallBehavior;
+use self::syscall::ECallBehavior;
 use self::trap::TrapBehavior;
 
 pub struct RuntimeParameters {
     isa: Isa,
-    syscall_behavior: SystemCallBehavior,
+    syscall_behavior: ECallBehavior,
     trap_behavior: TrapBehavior,
     entry: u32,
     sections: OrderedSections,
@@ -35,7 +35,7 @@ pub struct RuntimeParameters {
 impl RuntimeParameters {
     pub fn new(
         isa: Isa,
-        syscall_behavior: SystemCallBehavior,
+        syscall_behavior: ECallBehavior,
         trap_behavior: TrapBehavior,
         entry: u32,
         sections: Vec<Section>,

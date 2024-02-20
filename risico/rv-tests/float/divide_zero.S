@@ -2,6 +2,10 @@
 .include "./common/syscalls.S"
 
 _start:
+    # Enable the F-ext in the mstatus CSR
+    lui      x10,0x2
+    csrw     mstatus,x10
+
     li       x10,0x3F800000
 
     fmv.w.x  f0,x10

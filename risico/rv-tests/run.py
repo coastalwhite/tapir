@@ -28,40 +28,53 @@ class LogLevel(Enum):
     WARNING = 2
     INFO = 3
 
-log_level = LogLevel.WARNING
-log_output = dict(
+LOG_LEVEL = LogLevel.WARNING
+LOG_OUTPUT = dict(
     error = sys.stderr,
     warning = sys.stderr,
     info = sys.stdout,
 )
 
 def log_error(s: str):
-    if log_level.value >= LogLevel.ERROR.value:
-        print('[ERROR]: ' + s, file=log_output['info'])
+    global LOG_LEVEL
+    if LOG_LEVEL.value >= LogLevel.ERROR.value:
+        print('[ERROR]: ' + s, file=LOG_OUTPUT['error'])
 
 def log_warning(s: str):
-    if log_level.value >= LogLevel.WARNING.value:
-        print('[WARN]: ' + s, file=log_output['info'])
+    global LOG_LEVEL
+    if LOG_LEVEL.value >= LogLevel.WARNING.value:
+        print('[WARN]: ' + s, file=LOG_OUTPUT['warning'])
 
 def log_info(s: str):
-    if log_level.value >= LogLevel.INFO.value:
-        print('[INFO]: ' + s, file=log_output['info'])
+    global LOG_LEVEL
+    if LOG_LEVEL.value >= LogLevel.INFO.value:
+        print('[INFO]: ' + s, file=LOG_OUTPUT['info'])
 
 class Settings:
     march: str = 'i'
     features: list[str] = []
+    allow_trap: list[str] = []
 
     def set_option(self, option: str, value: str | None) -> bool:
         match option:
             case 'march':
-                assert value != None
+                assert type(value) is str
                 self.march = value
                 return True
             case 'features':
-                assert value != None
+                assert type(value) is str
                 self.features = list(
-                    map(lambda f: f.strip().lower(), value.split())
+                    map(lambda f: f.strip().lower(), value.split(','))
                 )
+                return True
+            case 'allow_trap':
+                if type(value) is bool:
+                    self.allow_trap = ['all'] if value else []
+                elif type(value) is str:
+                    self.allow_trap = list(
+                        map(lambda f: f.strip().lower(), value.split(','))
+                    )
+
                 return True
 
         return False
@@ -93,10 +106,18 @@ def get_file_settings(path: str, comment: str) -> Settings:
 
             line = line[len(SETTING_START):].strip()
 
-            split = line.split(SETTING_VALUE_DELIM, 1)
+            if '=' not in line:
+                if line.startswith('!'):
+                    option = line[1:].strip()
+                    value = False
+                else:
+                    option = line
+                    value = True
+            else:
+                split = line.split(SETTING_VALUE_DELIM, 1)
 
-            option = split[0].strip()
-            value = None if len(split) == 1 else split[1].strip()
+                option = split[0].strip()
+                value = None if len(split) == 1 else split[1].strip()
 
             if not settings.set_option(option, value):
                 raise Exception(f"{path}:{i}: Unknown option '{option}'")
@@ -104,9 +125,7 @@ def get_file_settings(path: str, comment: str) -> Settings:
     return settings
 
 
-def compile_rs(path: str, out: str):
-    settings = get_file_settings(path, RUST_COMMENT)
-
+def compile_rs(path: str, out: str, settings: Settings):
     target = f"riscv32{settings.march}-unknown-none-elf"
     features = settings.features
 
@@ -121,9 +140,7 @@ def compile_rs(path: str, out: str):
     rustc = subprocess.run(argv, capture_output = True)
     rustc.check_returncode()
 
-def compile_asm(path: str, out: str):
-    settings = get_file_settings(path, ASM_COMMENT)
-
+def compile_asm(path: str, out: str, settings: Settings):
     march = 'rv32' + settings.march
     features = settings.features
 
@@ -144,17 +161,25 @@ def compile_asm(path: str, out: str):
     riscv_objcopy = subprocess.run(argv, capture_output = True)
     riscv_objcopy.check_returncode()
 
-def run_elf(root: str, path: str, syscalls = 'testing'):
+def run_elf(root: str, path: str, settings: Settings, syscalls = 'testing'):
     cli_bin = os.path.join(root, 'target', 'debug', 'cli')
-    argv = [cli_bin, "-S", syscalls, path]
+    argv = [cli_bin, "-S", syscalls]
+    argv += ['-t', 'all']
+    for v in settings.allow_trap:
+        argv += ['-t', v + '=allow']
+    argv += [path]
 
     log_info('cmd = ' + ' '.join(argv))
     risico = subprocess.run(argv, capture_output = True)
     risico.check_returncode()
 
-def run_bin(root: str, path: str):
+def run_bin(root: str, path: str, settings: Settings):
     cli_bin = os.path.join(root, 'target', 'debug', 'cli')
-    argv = [cli_bin, "-R", "-S", "testing", path]
+    argv = [cli_bin, "-R", "-S", "testing"]
+    argv += ['-t', 'all']
+    for v in settings.allow_trap:
+        argv += ['-t', v + '=allow']
+    argv += [path]
 
     log_info('cmd = ' + ' '.join(argv))
     risico = subprocess.run(argv, capture_output = True)
@@ -230,11 +255,29 @@ def find_project_dirs() -> dict[str, str]:
     )
 
 def main():
+    global LOG_LEVEL
     argv = sys.argv
 
-    FILTERS = None
-    if len(argv) > 1:
-       FILTERS = list(map(lambda s: s.strip(), argv[1:]))
+    args = argv[1:]
+
+    set_log_flags = [s.split('=', 1)[1] for s in args if s.startswith('--log=') ]
+    if len(set_log_flags) != 0:
+        log_level = set_log_flags[-1].strip()
+        match log_level:
+            case 'none': LOG_LEVEL = LogLevel.NONE
+            case 'error': LOG_LEVEL = LogLevel.ERROR
+            case 'warning': LOG_LEVEl = LogLevel.WARNING
+            case 'info': LOG_LEVEL = LogLevel.INFO
+            case _:
+                eprint(f"Invalid Log Level {log_level}!")
+                exit(2)
+        log_info(f"LOG_LEVEL = {log_level}")
+
+    FILTERS = [f for f in args if not f.startswith('-')]
+    if len(FILTERS) == 0:
+        FILTERS = None
+
+    log_info(f"FILTERS = {FILTERS}")
 
     project_dirs = find_project_dirs()
 
@@ -296,7 +339,8 @@ def main():
                 pass
 
             try:
-                cat_compile(src, bin)
+                settings = get_file_settings(src, RUST_COMMENT if ext == 'rs' else ASM_COMMENT)
+                cat_compile(src, bin, settings)
             except subprocess.CalledProcessError as e:
                 failed_compiles += 1
 
@@ -317,7 +361,7 @@ def main():
     num_tests = 0
     num_ignored = 0
     failed_runs = 0
-    for name, [tests, _, _, run] in categories.items():
+    for name, [tests, ext, _, run] in categories.items():
         print()
         print(f"[{name}]:")
         for t in tests:
@@ -326,10 +370,13 @@ def main():
 
             num_tests += 1
 
+            src = t + '.' + ext
             bin = os.path.join(project_dirs['OUTPUT'], name, t)
 
             try:
-                run(project_dirs['PROJECT_ROOT'], bin)
+                print(f"{t}: \r", end = '')
+                settings = get_file_settings(src, RUST_COMMENT if ext == 'rs' else ASM_COMMENT)
+                run(project_dirs['PROJECT_ROOT'], bin, settings)
                 print(f"{t}: success")
             except subprocess.CalledProcessError as e:
                 failed_runs += 1
@@ -356,8 +403,20 @@ def main():
     ]
 
     IGNORED = [
-        'rv32ui-p-fence_i',
+        'rv32mi-p-breakpoint', # This assumes the presence of the RISC-V Debug Standard
     ]
+
+    ALLOWED_TRAPS = {
+        'rv32mi-p-illegal': ['illegal_instr'],
+    }
+
+    SYSCALLS = {
+        'rv32ui': 'linux',
+        'rv32um': 'linux',
+        'rv32uc': 'linux',
+        'rv32uf': 'linux',
+        'rv32mi': 'trapvec',
+    }
 
     print()
     print(f"[riscv-tests unit tests]:")
@@ -375,7 +434,17 @@ def main():
             continue
 
         try:
-            run_elf(project_dirs['PROJECT_ROOT'], path, syscalls='linux')
+            print(f"{file}: \r", end = '')
+
+            settings = Settings()
+            settings.allow_trap = ['ecall']
+
+            if file in ALLOWED_TRAPS:
+                settings.allow_trap += ALLOWED_TRAPS[file]
+
+            category = file.split('-')[0]
+
+            run_elf(project_dirs['PROJECT_ROOT'], path, settings, syscalls=SYSCALLS[category])
             print(f"{file}: success")
         except subprocess.CalledProcessError as e:
             failed_runs += 1
