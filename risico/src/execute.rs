@@ -9,10 +9,10 @@ use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
 use crate::csr::fcsr::ExceptionFlags;
 use crate::csr::mstatus::ExtStatus;
 use crate::csr::mtvec::TrapCause;
-use crate::csr::ControlStatusRegisters;
+use crate::csr::{ControlStatusRegisters, Mode};
 use crate::device_config::Isa;
 use crate::driver::cache::CacheResult;
-use crate::memory::{BackingStore, MappedMemory};
+use crate::memory::{BackingStore, MappedMemory, Endianness};
 use crate::repr::{Addr, Offset, Size, Word};
 use crate::syscall::{ECallBehavior, SystemCallResult};
 use crate::trap::TrapBehavior;
@@ -217,8 +217,59 @@ impl<M: BackingStore> State<M> {
         self
     }
 
+    pub fn get_mode(&self) -> Mode {
+        // @TODO
+        Mode::Machine
+    }
+
+    pub fn get_datamem_endianness(&self) -> Endianness {
+        let mstatus = &self.registers().csr().mstatus;
+
+        match self.get_mode() {
+            Mode::User => mstatus.ube(),
+            Mode::Supervisor => mstatus.sbe(),
+            Mode::Reserved10 => unimplemented!(),
+            Mode::Machine => mstatus.mbe(),
+        }
+    }
+
+    pub fn fetch_datamem_word(&self, at: Addr) -> Word {
+        let endianness = self.get_datamem_endianness();
+        self.memory().get(at, endianness).into()
+    }
+
+    pub fn fetch_datamem_halfword(&self, at: Addr) -> u16 {
+        let endianness = self.get_datamem_endianness();
+        self.memory().get_halfword(at, endianness)
+    }
+
+    pub fn fetch_datamem_byte(&self, at: Addr) -> u8 {
+        self.memory().get_byte(at)
+    }
+
+    pub fn store_datamem_word(&mut self, at: Addr, value: impl Into<Word>) {
+        let value = value.into();
+        let endianness = self.get_datamem_endianness();
+        self.memory_mut().set(at, value.as_u32(), endianness)
+    }
+
+    pub fn store_datamem_halfword(&mut self, at: Addr, value: u16) {
+        let endianness = self.get_datamem_endianness();
+        self.memory_mut().set_halfword(at, value, endianness)
+    }
+
+    pub fn store_datamem_byte(&mut self, at: Addr, value: u8) {
+        self.memory_mut().set_byte(at, value)
+    }
+
     pub fn instruction_fetch(&mut self) -> Word {
-        Word::from(self.memory.get(self.pc()))
+        // @Note: According to the RISC-V Privileged Specification, we don't have to take into
+        // account the MBE, SBE or UBE here.
+        //
+        // > The MBE, SBE, and UBE bits in mstatus and mstatush are WARL fields that control the
+        // > endianness of memory accesses other than instruction fetches. Instruction fetches are
+        // > always little- endian.
+        Word::from(self.memory.get_le_bytes(self.pc()))
     }
 
     pub fn instruction_decode(
@@ -372,7 +423,7 @@ impl<M: BackingStore> State<M> {
                 let rs = self.registers.get(rs).as_addr();
                 let src = rs.offset(args.imm());
 
-                let mem = self.memory.get_byte(src);
+                let mem = self.fetch_datamem_byte(src);
                 let mem = Word::sign_extend_u8(mem);
 
                 self.registers.set(rd, mem);
@@ -384,7 +435,7 @@ impl<M: BackingStore> State<M> {
                 let rs = self.registers.get(rs).as_addr();
                 let src = rs.offset(args.imm());
 
-                let mem = self.memory.get_halfword(src);
+                let mem = self.fetch_datamem_halfword(src);
                 let mem = Word::sign_extend_u16(mem);
 
                 self.registers.set(rd, mem);
@@ -396,8 +447,7 @@ impl<M: BackingStore> State<M> {
                 let rs = self.registers.get(rs).as_addr();
                 let src = rs.offset(args.imm());
 
-                let mem = self.memory.get(src);
-                let mem = Word::from(mem);
+                let mem = self.fetch_datamem_word(src);
 
                 self.registers.set(rd, mem);
             }
@@ -408,7 +458,7 @@ impl<M: BackingStore> State<M> {
                 let rs = self.registers.get(rs).as_addr();
                 let src = rs.offset(args.imm());
 
-                let mem = self.memory.get_byte(src);
+                let mem = self.fetch_datamem_byte(src);
                 let mem = Word::from(mem);
 
                 self.registers.set(rd, mem);
@@ -420,7 +470,7 @@ impl<M: BackingStore> State<M> {
                 let rs = self.registers.get(rs).as_addr();
                 let src = rs.offset(args.imm());
 
-                let mem = self.memory.get_halfword(src);
+                let mem = self.fetch_datamem_halfword(src);
                 let mem = Word::from(mem);
 
                 self.registers.set(rd, mem);
@@ -433,7 +483,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers.get(rs2).to_le_bytes()[0];
                 let dest = rs1.offset(args.imm());
 
-                self.memory.set_byte(dest, rs2);
+                self.store_datamem_byte(dest, rs2);
             }
             Sh(args) => {
                 let rs1 = args.rs1();
@@ -443,7 +493,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers.get(rs2).to_le_halfwords()[0];
                 let dest = rs1.offset(args.imm());
 
-                self.memory.set_halfword(dest, rs2);
+                self.store_datamem_halfword(dest, rs2);
             }
             Sw(args) => {
                 let rs1 = args.rs1();
@@ -453,7 +503,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers.get(rs2).as_u32();
                 let dest = rs1.offset(args.imm());
 
-                self.memory.set(dest, rs2);
+                self.store_datamem_word(dest, rs2);
             }
             Addi(args) => {
                 let rd = args.rd();
@@ -792,7 +842,7 @@ impl<M: BackingStore> State<M> {
 
                 let dest = rs1.as_addr().offset(imm);
 
-                self.memory.set(dest, rs2.to_bits());
+                self.store_datamem_word(dest, rs2.to_bits());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
@@ -808,9 +858,9 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get(rs1);
 
                 let src = rs1.as_addr().offset(imm);
-                let value = self.memory.get(src);
+                let value = self.fetch_datamem_word(src);
 
-                self.registers.set_freg(rd, f32::from_bits(value));
+                self.registers.set_freg(rd, value.as_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
@@ -1575,7 +1625,7 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers().get(rs1.into());
                 let addr = rs1.as_addr().offset(offset);
 
-                let value = self.memory.get(addr);
+                let value = self.fetch_datamem_word(addr);
                 self.registers.set(rd.into(), value);
             }
             CFlw(args) => {
@@ -1586,8 +1636,8 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers().get(rs1.into());
                 let addr = rs1.as_addr().offset(offset);
 
-                let value = self.memory.get(addr);
-                self.registers.set_freg(rd.into(), f32::from_bits(value));
+                let value = self.fetch_datamem_word(addr);
+                self.registers.set_freg(rd.into(), value.as_f32());
             }
             CSw(args) => {
                 let rs1 = args.rs1();
@@ -1598,7 +1648,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers().get(rs2.into());
                 let addr = rs1.as_addr().offset(offset);
 
-                self.memory.set(addr, rs2.as_u32());
+                self.store_datamem_word(addr, rs2.as_u32());
             }
             CFsw(args) => {
                 let rs1 = args.rs1();
@@ -1609,7 +1659,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = self.registers().get_freg(rs2.into());
                 let addr = rs1.as_addr().offset(offset);
 
-                self.memory.set(addr, rs2.to_bits());
+                self.store_datamem_word(addr, rs2.to_bits());
             }
             CNop(_) => {}
             CAddi(args) => {
@@ -1744,7 +1794,7 @@ impl<M: BackingStore> State<M> {
                 let offset = i16::from(args.imm());
 
                 let addr = self.registers.get(XRegIdent::Sp).as_addr().offset(offset);
-                let value = self.memory().get(addr);
+                let value = self.fetch_datamem_word(addr);
 
                 self.registers.set(rd, value);
             }
@@ -1753,9 +1803,9 @@ impl<M: BackingStore> State<M> {
                 let offset = i16::from(args.imm());
 
                 let addr = self.registers.get(XRegIdent::Sp).as_addr().offset(offset);
-                let value = self.memory().get(addr);
+                let value = self.fetch_datamem_word(addr);
 
-                self.registers.set_freg(rd, f32::from_bits(value));
+                self.registers.set_freg(rd, value.as_f32());
             }
             CJr(args) => {
                 let rs = args.rs1();
@@ -1797,7 +1847,7 @@ impl<M: BackingStore> State<M> {
                     .offset(i16::from(offset));
                 let value = self.registers.get(rs2);
 
-                self.memory.set(addr, value.as_u32());
+                self.store_datamem_word(addr, value.as_u32());
             }
             CFswSp(args) => {
                 let rs2 = args.rs2();
@@ -1810,7 +1860,7 @@ impl<M: BackingStore> State<M> {
                     .offset(i16::from(offset));
                 let value = self.registers.get_freg(rs2);
 
-                self.memory.set(addr, value.to_bits());
+                self.store_datamem_word(addr, value.to_bits());
             }
         };
 

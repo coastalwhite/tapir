@@ -1,3 +1,5 @@
+use crate::memory::Endianness;
+
 use super::{CsrInitContext, Mode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +42,10 @@ impl MStatus {
     const MIE_MASK: u64 = 1 << 3;
     const MPIE_MASK: u64 = 1 << 7;
     const MPP_MASK: u64 = 3 << 11;
+
+    const MBE_MASK: u64 = 1 << (32 + 5);
+    const SBE_MASK: u64 = 1 << (32 + 4);
+    const UBE_MASK: u64 = 1 << 6;
 
     pub fn mstatush_read(&self) -> u32 {
         (self.0 >> 32) as u32
@@ -129,5 +135,29 @@ impl MStatus {
     pub fn set_mpp(&mut self, mode: Mode) {
         self.0 &= !Self::MPP_MASK;
         self.0 |= (mode as u64) << 11;
+    }
+
+    /// Machine Mode Data Memory Access Big-Endian
+    pub const fn mbe(self) -> Endianness {
+        match self.0 & Self::MBE_MASK != 0 {
+            false => Endianness::Little,
+            true => Endianness::Big,
+        }
+    }
+
+    /// Supervisor Mode Data Memory Access Big-Endian
+    pub const fn sbe(self) -> Endianness {
+        match self.0 & Self::SBE_MASK != 0 {
+            false => Endianness::Little,
+            true => Endianness::Big,
+        }
+    }
+
+    /// User Mode Data Memory Access Big-Endian
+    pub const fn ube(self) -> Endianness {
+        match self.0 & Self::UBE_MASK != 0 {
+            false => Endianness::Little,
+            true => Endianness::Big,
+        }
     }
 }

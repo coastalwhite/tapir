@@ -9,6 +9,12 @@ use crate::driver::process::DriverProcess;
 use crate::repr::{Addr, Size, Word};
 use crate::util::u32_to_usize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endianness {
+    Little,
+    Big,
+}
+
 pub struct PlacedBytes {
     start: Addr,
     bytes: Vec<u8>,
@@ -225,7 +231,7 @@ impl MappedMemory {
             return 0;
         };
 
-        region.driver.get(Addr::from(offset))
+        region.driver.get_le_bytes(Addr::from(offset))
     }
 }
 
@@ -279,7 +285,7 @@ impl MappedMemoryBuilder {
 }
 
 impl BackingStore for DynamicDataArray {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         if at.is_word_aligned() {
             if Word::from(at).as_u32() >= self.size {
                 panic!("Out of range");
@@ -301,7 +307,7 @@ impl BackingStore for DynamicDataArray {
         ])
     }
 
-    fn set(&mut self, at: Addr, word: u32) {
+    fn set_le_bytes(&mut self, at: Addr, word: u32) {
         if at.is_word_aligned() {
             if Word::from(at).as_u32() >= self.size {
                 panic!("Out of range");
@@ -328,7 +334,7 @@ impl BackingStore for DynamicDataArray {
 }
 
 impl BackingStore for StaticDataArray {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         if at.is_word_aligned() {
             let at = u32_to_usize(Word::from(at).as_u32());
             return match self.data.get(at / 4) {
@@ -348,7 +354,7 @@ impl BackingStore for StaticDataArray {
         ])
     }
 
-    fn set(&mut self, at: Addr, word: u32) {
+    fn set_le_bytes(&mut self, at: Addr, word: u32) {
         if at.is_word_aligned() {
             let at = u32_to_usize(Word::from(at).as_u32());
             match self.data.get_mut(at / 4) {
@@ -371,7 +377,7 @@ impl BackingStore for StaticDataArray {
 }
 
 impl BackingStore for DriverFile {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         let at = Word::from(at).as_u32();
 
         let mut file = self.file.borrow_mut();
@@ -393,7 +399,7 @@ impl BackingStore for DriverFile {
         u32::from_be_bytes(buffer)
     }
 
-    fn set(&mut self, at: Addr, word: u32) {
+    fn set_le_bytes(&mut self, at: Addr, word: u32) {
         let at = Word::from(at).as_u32();
 
         let mut file = self.file.borrow_mut();
@@ -434,28 +440,28 @@ impl DynamicDataArray {
 }
 
 impl BackingStore for Driver {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         match self {
             Driver::Word(ref word) => {
                 debug_assert_eq!(at, 0);
                 *word
             }
-            Driver::StaticArray(ref array) => array.get(at),
-            Driver::DynamicArray(ref array) => array.get(at),
-            Driver::File(ref driver_file) => driver_file.get(at),
-            Driver::Process(ref driver_process) => driver_process.get(at),
+            Driver::StaticArray(ref array) => array.get_le_bytes(at),
+            Driver::DynamicArray(ref array) => array.get_le_bytes(at),
+            Driver::File(ref driver_file) => driver_file.get_le_bytes(at),
+            Driver::Process(ref driver_process) => driver_process.get_le_bytes(at),
         }
     }
-    fn set(&mut self, at: Addr, word: u32) {
+    fn set_le_bytes(&mut self, at: Addr, word: u32) {
         match self {
             Driver::Word(ref mut dword) => {
                 debug_assert_eq!(at, 0);
                 *dword = word;
             }
-            Driver::StaticArray(ref mut array) => array.set(at, word),
-            Driver::DynamicArray(ref mut array) => array.set(at, word),
-            Driver::File(ref mut driver_file) => driver_file.set(at, word),
-            Driver::Process(ref mut driver_process) => driver_process.set(at, word),
+            Driver::StaticArray(ref mut array) => array.set_le_bytes(at, word),
+            Driver::DynamicArray(ref mut array) => array.set_le_bytes(at, word),
+            Driver::File(ref mut driver_file) => driver_file.set_le_bytes(at, word),
+            Driver::Process(ref mut driver_process) => driver_process.set_le_bytes(at, word),
         }
     }
 }
@@ -471,7 +477,7 @@ impl BackingStore for MappedMemory {
     }
 
     #[inline]
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         self.last_access_cache_result.borrow_mut().take();
 
         let Some((region, offset)) = self.get_region(at) else {
@@ -487,10 +493,10 @@ impl BackingStore for MappedMemory {
             *self.last_access_cache_result.borrow_mut() = Some(cache_result);
         }
 
-        region.driver.get(Addr::from(offset))
+        region.driver.get_le_bytes(Addr::from(offset))
     }
 
-    fn set(&mut self, at: Addr, value: u32) {
+    fn set_le_bytes(&mut self, at: Addr, value: u32) {
         self.last_access_cache_result.borrow_mut().take();
 
         let Some((region, offset)) = self.get_region_mut(at) else {
@@ -498,7 +504,7 @@ impl BackingStore for MappedMemory {
             return;
         };
 
-        region.driver.set(Addr::from(offset), value);
+        region.driver.set_le_bytes(Addr::from(offset), value);
 
         if let Some(cache_result) = region
             .cache
@@ -511,8 +517,32 @@ impl BackingStore for MappedMemory {
 }
 
 pub trait BackingStore {
-    fn get(&self, at: Addr) -> u32;
-    fn set(&mut self, at: Addr, value: u32);
+    fn get_le_bytes(&self, at: Addr) -> u32;
+    fn set_le_bytes(&mut self, at: Addr, value: u32);
+
+    #[inline]
+    fn get_be_bytes(&self, at: Addr) -> u32 {
+        self.get_le_bytes(at).swap_bytes()
+    }
+    #[inline]
+    fn set_be_bytes(&mut self, at: Addr, value: u32) {
+        self.set_le_bytes(at, value.swap_bytes())
+    }
+
+    #[inline]
+    fn get(&self, at: Addr, endianness: Endianness) -> u32 {
+        match endianness {
+            Endianness::Little => self.get_le_bytes(at),
+            Endianness::Big => self.get_be_bytes(at),
+        }
+    }
+    #[inline]
+    fn set(&mut self, at: Addr, value: u32, endianness: Endianness) {
+        match endianness {
+            Endianness::Little => self.set_le_bytes(at, value),
+            Endianness::Big => self.set_be_bytes(at, value),
+        }
+    }
 
     fn is_executable(&self, _at: Addr) -> bool {
         true
@@ -538,23 +568,23 @@ pub trait BackingStore {
     }
 
     fn get_byte(&self, at: Addr) -> u8 {
-        let word = self.get(at.word_align());
+        let word = self.get_le_bytes(at.word_align());
         word.to_le_bytes()[at.word_offset() as usize]
     }
 
     fn set_byte(&mut self, at: Addr, byte: u8) {
-        let word = self.get(at.word_align());
+        let word = self.get_le_bytes(at.word_align());
         let mut bytes = word.to_le_bytes();
 
         bytes[at.word_offset() as usize] = byte;
 
-        self.set(at.word_align(), u32::from_le_bytes(bytes));
+        self.set_le_bytes(at.word_align(), u32::from_le_bytes(bytes));
     }
 
-    fn get_halfword(&self, at: Addr) -> u16 {
+    fn get_le_halfword(&self, at: Addr) -> u16 {
         let word_addr = Word::from(at).as_u32();
         if word_addr & 0x1 == 0 {
-            let word = self.get(at.word_align());
+            let word = self.get_le_bytes(at.word_align());
 
             return if word_addr & 0x2 != 0 {
                 ((word & 0xFFFF_0000) >> 16) as u16
@@ -566,18 +596,18 @@ pub trait BackingStore {
         u16::from_le_bytes([self.get_byte(at.offset(0)), self.get_byte(at.offset(1))])
     }
 
-    fn set_halfword(&mut self, at: Addr, halfword: u16) {
-        let word = self.get(at.word_align());
+    fn set_le_halfword(&mut self, at: Addr, halfword: u16) {
+        let word = self.get_le_bytes(at.word_align());
         match at.word_offset() {
-            0b00 => self.set(
+            0b00 => self.set_le_bytes(
                 at.word_align(),
                 (word & 0xFFFF_0000) | (u32::from(halfword.to_le()) << 00),
             ),
-            0b01 => self.set(
+            0b01 => self.set_le_bytes(
                 at.word_align(),
                 (word & 0xFF00_00FF) | (u32::from(halfword.to_le()) << 08),
             ),
-            0b10 => self.set(
+            0b10 => self.set_le_bytes(
                 at.word_align(),
                 (word & 0x0000_FFFF) | (u32::from(halfword.to_le()) << 16),
             ),
@@ -590,10 +620,34 @@ pub trait BackingStore {
             _ => unreachable!(),
         }
     }
+
+    #[inline]
+    fn get_be_halfword(&self, at: Addr) -> u16 {
+        self.get_le_halfword(at).swap_bytes()
+    }
+    #[inline]
+    fn set_be_halfword(&mut self, at: Addr, value: u16) {
+        self.set_le_halfword(at, value.swap_bytes())
+    }
+
+    #[inline]
+    fn get_halfword(&self, at: Addr, endianness: Endianness) -> u16 {
+        match endianness {
+            Endianness::Little => self.get_le_halfword(at),
+            Endianness::Big => self.get_be_halfword(at),
+        }
+    }
+    #[inline]
+    fn set_halfword(&mut self, at: Addr, value: u16, endianness: Endianness) {
+        match endianness {
+            Endianness::Little => self.set_le_halfword(at, value),
+            Endianness::Big => self.set_be_halfword(at, value),
+        }
+    }
 }
 
 impl BackingStore for Vec<u8> {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         let at = u32_to_usize(Word::from(at).as_u32());
 
         if at > self.len() {
@@ -603,7 +657,7 @@ impl BackingStore for Vec<u8> {
         u32::from_le_bytes(self[at..at + 4].try_into().unwrap())
     }
 
-    fn set(&mut self, at: Addr, value: u32) {
+    fn set_le_bytes(&mut self, at: Addr, value: u32) {
         let at = u32_to_usize(Word::from(at).as_u32());
 
         if at > self.len() {
@@ -635,7 +689,7 @@ impl BackingStore for Vec<u8> {
 }
 
 impl BackingStore for PlacedBytes {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         if at < self.start {
             panic!();
         }
@@ -649,7 +703,7 @@ impl BackingStore for PlacedBytes {
         u32::from_le_bytes(self.bytes[offset..offset + 4].try_into().unwrap())
     }
 
-    fn set(&mut self, at: Addr, value: u32) {
+    fn set_le_bytes(&mut self, at: Addr, value: u32) {
         if at < self.start {
             panic!();
         }

@@ -190,7 +190,7 @@ impl ProcessCommand {
 }
 
 impl BackingStore for DriverProcess {
-    fn get(&self, at: Addr) -> u32 {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
         let mut stdin = self.stdin.lock().unwrap();
         ProcessCommand::Get(at).serialize(&mut *stdin).unwrap();
 
@@ -209,7 +209,7 @@ impl BackingStore for DriverProcess {
         }
     }
 
-    fn set(&mut self, at: Addr, value: u32) {
+    fn set_le_bytes(&mut self, at: Addr, value: u32) {
         let mut stdin = self.stdin.lock().unwrap();
         ProcessCommand::Set(at, value)
             .serialize(&mut *stdin)
