@@ -12,23 +12,24 @@ pub enum MtvecMode {
     Reserved11 = 0b11,
 }
 
+#[rustfmt::skip]
 #[repr(u32)]
 pub enum TrapCause {
     InstructionAddressMisaligned = 0,
-    InstructionAccessFault = 1,
-    IllegalInstruction = 2,
-    Breakpoint = 3,
-    LoadAddressMisaligned = 4,
-    LoadAccessFault = 5,
+    InstructionAccessFault       = 1,
+    IllegalInstruction           = 2,
+    Breakpoint                   = 3,
+    LoadAddressMisaligned        = 4,
+    LoadAccessFault              = 5,
     AtomicStoreAddressMisaligned = 6,
-    AtomicStoreAccessFault = 7,
-    EcallUmode = 8,
-    EcallHSmode = 9,
-    EcallVSmode = 10,
-    EcallMmode = 11,
-    InstructionPageFault = 12,
-    LoadPageFault = 13,
-    AtomicStorePageFault = 15,
+    AtomicStoreAccessFault       = 7,
+    EcallUmode                   = 8,
+    EcallHSmode                  = 9,
+    EcallVSmode                  = 10,
+    EcallMmode                   = 11,
+    InstructionPageFault         = 12,
+    LoadPageFault                = 13,
+    AtomicStorePageFault         = 15,
 }
 
 impl Mtvec {
@@ -69,5 +70,4 @@ impl Mtvec {
             MtvecMode::Reserved11 => None,
         }
     }
-
 }
