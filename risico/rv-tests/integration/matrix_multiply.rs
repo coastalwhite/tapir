@@ -1,4 +1,5 @@
 // option: march = imac
+// option: allow_trap = ecall
 #![no_std]
 #![no_main]
 

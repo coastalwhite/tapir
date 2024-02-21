@@ -1,4 +1,5 @@
 # option: features = f
+# option: allow_trap = ecall
 .include "./common/syscalls.S"
 
 _start:

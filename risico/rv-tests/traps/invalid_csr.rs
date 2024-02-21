@@ -1,4 +1,4 @@
-// option: allow_trap = illegal_instr,missing_csr
+// option: allow_trap = illegal_instr,ecall,missing_csr
 #![no_std]
 #![no_main]
 
