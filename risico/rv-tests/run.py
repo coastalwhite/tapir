@@ -455,7 +455,7 @@ def main():
         except subprocess.CalledProcessError as e:
             failed_runs += 1
 
-            eprint(f"{file}: error. return code = {e.returncode} (test = {e.returncode >> 1})")
+            eprint(f"{file}: error. return code = {e.returncode}")
             eprint('--- STDERR ---')
             display_error_truncated(e.stderr.decode())
 
