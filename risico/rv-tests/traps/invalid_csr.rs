@@ -29,6 +29,9 @@ _trap_vector:
 .globl _trap_illegal_instruction
 _trap_illegal_instruction:
     li a0,0x1337
+    csrr a1,mepc
+    addi a1,a1,4
+    csrw mepc,a1
     mret
 
 .globl _start
@@ -48,6 +51,7 @@ fn main() -> ! {
         core::arch::asm!(
             "csrr   zero,0",
             lateout("a0") magic,
+            lateout("a1") _,
         );
     }
 
