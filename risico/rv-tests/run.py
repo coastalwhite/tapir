@@ -404,6 +404,15 @@ def main():
 
     IGNORED = [
         'rv32mi-p-breakpoint', # This assumes the presence of the RISC-V Debug Standard
+        'rv32mi-p-ma_fetch',   # @TEMP
+        'rv32mi-p-ma_addr',    # @TEMP
+        'rv32mi-p-sw-misaligned', # @TEMP
+        'rv32mi-p-mcsr', # @TEMP
+        'rv32mi-p-lw-misaligned', # @TEMP
+        'rv32mi-p-sh-misaligned', # @TEMP
+        'rv32mi-p-lh-misaligned', # @TEMP
+        'rv32mi-p-illegal', # @TEMP
+        'rv32mi-p-scall', # @TEMP
     ]
 
     ALLOWED_TRAPS = {

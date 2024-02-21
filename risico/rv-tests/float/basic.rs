@@ -1,4 +1,5 @@
 // option: features = f
+// option: allow_trap = mmode_ecall
 #![no_std]
 #![no_main]
 

@@ -1,4 +1,4 @@
-// target: riscv32imac-unknown-none-elf
+// option: allow_trap = mmode_ecall
 #![no_std]
 #![no_main]
 

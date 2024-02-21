@@ -1,3 +1,4 @@
+#option: allow_trap = mmode_ecall
 .include "./common/syscalls.S"
 
 _start:
