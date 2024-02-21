@@ -37,6 +37,18 @@ fn main() {
                 std::process::exit(1);
             }
 
+            let mut htif = None;
+
+            if cli.htif() {
+                match obj_file.section_by_name(".tohost") {
+                    Some(tohost_section) => htif = Some(Addr::from(tohost_section.address() as u32)),
+                    None => {
+                        eprintln!("No Host Target Interface section `.tohost` found.");
+                        std::process::exit(1);
+                    }
+                }
+            }
+
             if cli.do_dump() {
                 assert_eq!(obj_file.endianness(), Endianness::Little);
 
@@ -122,10 +134,11 @@ fn main() {
 
             let mut state = State::new(
                 Isa::Rv32I,
-                cli.system_call_behavior(),
+                cli.ecall_behavior(),
                 cli.trap_behavior(),
                 entry,
                 memory,
+                htif,
             );
 
             let mut trace_file = cli.trace().map(|trace| {
@@ -178,7 +191,7 @@ fn main() {
                 return;
             }
 
-            raw_image.execute(flags.entry(), cli.system_call_behavior(), cli.trap_behavior());
+            raw_image.execute(flags.entry(), cli.ecall_behavior(), cli.trap_behavior());
 
             todo!()
         }
@@ -198,7 +211,7 @@ fn main() {
 
             let runtime_parameters = RuntimeParameters::new(
                 Isa::Rv32I,
-                cli.system_call_behavior(),
+                cli.ecall_behavior(),
                 cli.trap_behavior(),
                 0x0,
                 device_config.take_sections(),

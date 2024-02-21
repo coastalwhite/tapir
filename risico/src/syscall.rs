@@ -15,8 +15,9 @@ pub enum SystemCallResult {
     Abort,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ECallBehavior {
+    #[default]
     TrapVector,
     Linux,
     Testing,

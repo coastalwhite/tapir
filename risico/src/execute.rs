@@ -12,7 +12,7 @@ use crate::csr::mtvec::TrapCause;
 use crate::csr::{ControlStatusRegisters, Mode};
 use crate::device_config::Isa;
 use crate::driver::cache::CacheResult;
-use crate::memory::{BackingStore, MappedMemory, Endianness};
+use crate::memory::{BackingStore, Endianness, MappedMemory};
 use crate::repr::{Addr, Offset, Size, Word};
 use crate::syscall::{ECallBehavior, SystemCallResult};
 use crate::trap::TrapBehavior;
@@ -52,13 +52,30 @@ pub struct Registers {
     csr: ControlStatusRegisters,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrivilegeLevel {
+    Machine,
+    User,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StateECallBehavior {
+    pub machine: ECallBehavior,
+    pub user: ECallBehavior,
+}
+
 #[derive(Clone)]
 pub struct State<M: BackingStore> {
-    registers: Registers,
     isa: Isa,
-    syscall_behavior: ECallBehavior,
+    privilege: PrivilegeLevel,
     trap_behavior: TrapBehavior,
+    ecall_behavior: StateECallBehavior,
+    registers: Registers,
     memory: M,
+    /// Host Target Interface
+    ///
+    /// Originally form the `riscv-fesvr`, now used by Spike to communicate with the host.
+    htif: Option<Addr>,
     instruction_counter: u64,
 }
 
@@ -146,10 +163,11 @@ impl<M: BackingStore> Debug for State<M> {
 impl<M: BackingStore> State<M> {
     pub fn new(
         isa: Isa,
-        syscall_behavior: ECallBehavior,
+        ecall_behavior: StateECallBehavior,
         trap_behavior: TrapBehavior,
         entry: u32,
         memory: M,
+        htif: Option<Addr>,
     ) -> Self {
         let registers = Registers {
             pc: entry.into(),
@@ -161,10 +179,12 @@ impl<M: BackingStore> State<M> {
         State {
             registers,
             isa,
-            syscall_behavior,
+            privilege: PrivilegeLevel::Machine,
+            ecall_behavior,
             trap_behavior,
             memory,
             instruction_counter: 0,
+            htif,
         }
     }
 
@@ -217,19 +237,37 @@ impl<M: BackingStore> State<M> {
         self
     }
 
-    pub fn get_mode(&self) -> Mode {
-        // @TODO
-        Mode::Machine
+    pub fn htif_to_host(&self, value: u32) {
+        // Adapted from:
+        // - https://github.com/riscv-software-src/riscv-isa-sim/issues/364#issuecomment-607657754
+
+        let is_exit = value & 1 != 0;
+        if is_exit {
+            let return_code = value >> 1;
+            std::process::exit(return_code as i32);
+        } else {
+            unimplemented!()
+        }
+    }
+
+    pub fn current_privilege(&self) -> PrivilegeLevel {
+        self.privilege
+    }
+
+    pub fn current_ecall_behavior(&self) -> ECallBehavior {
+        match self.current_privilege() {
+            PrivilegeLevel::Machine => self.ecall_behavior.machine,
+            PrivilegeLevel::User => self.ecall_behavior.user,
+        }
     }
 
     pub fn get_datamem_endianness(&self) -> Endianness {
         let mstatus = &self.registers().csr().mstatus;
 
-        match self.get_mode() {
-            Mode::User => mstatus.ube(),
-            Mode::Supervisor => mstatus.sbe(),
-            Mode::Reserved10 => unimplemented!(),
-            Mode::Machine => mstatus.mbe(),
+        match self.current_privilege() {
+            PrivilegeLevel::User => mstatus.ube(),
+            // PrivilegeLevel::Supervisor => mstatus.sbe(),
+            PrivilegeLevel::Machine => mstatus.mbe(),
         }
     }
 
@@ -249,6 +287,12 @@ impl<M: BackingStore> State<M> {
 
     pub fn store_datamem_word(&mut self, at: Addr, value: impl Into<Word>) {
         let value = value.into();
+
+        if self.htif.is_some_and(|htif_addr| htif_addr == at || htif_addr.offset(4) == at) {
+            self.htif_to_host(value.as_u32());
+            return;
+        }
+
         let endianness = self.get_datamem_endianness();
         self.memory_mut().set(at, value.as_u32(), endianness)
     }
@@ -306,12 +350,14 @@ impl<M: BackingStore> State<M> {
                 }
 
                 self.registers.csr.mepc.write(next_pc.as_u32());
+                self.registers.csr.mcause.write(TrapCause::$trap as u32);
                 let addr = self
                     .registers
                     .csr
                     .mtvec
                     .cause_addr(TrapCause::$trap)
                     .unwrap();
+                
                 self.registers.pc = Addr::from(addr);
                 return;
             }};
@@ -1451,21 +1497,20 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             Ecall(_args) => {
-                if self
-                    .trap_behavior
-                    .contains(TrapBehavior::ABORT_ON_ENV_CALL_FROM_M_MODE)
-                {
-                    eprintln!("[ABORT][PC=0x{:08x}]: Environment Call", self.pc(),);
-                    std::process::exit(1);
+                if self.current_ecall_behavior() == ECallBehavior::TrapVector {
+                    match self.current_privilege() {
+                        PrivilegeLevel::Machine => trigger_trap!(EcallMmode),
+                        PrivilegeLevel::User => trigger_trap!(EcallUmode),
+                    }
                 }
 
                 match self
-                    .syscall_behavior
+                    .current_ecall_behavior()
                     .handle(&mut self.registers, &mut self.memory)
                 {
                     SystemCallResult::Return(_) => {}
                     SystemCallResult::Jump(target) => {
-                        next_pc = target;
+                        unreachable!();
                     }
                     SystemCallResult::Exit(error_code) => {
                         std::process::exit(error_code);

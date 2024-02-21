@@ -13,6 +13,9 @@ ASM_COMMENT = '#'
 SETTING_START = 'option:'
 SETTING_VALUE_DELIM = '='
 
+ERROR_NUM_LINES = 20
+TIMEOUT = 3
+
 EXCLUDES = [
     'common',
     'build',
@@ -49,6 +52,15 @@ def log_info(s: str):
     global LOG_LEVEL
     if LOG_LEVEL.value >= LogLevel.INFO.value:
         print('[INFO]: ' + s, file=LOG_OUTPUT['info'])
+
+def display_error_truncated(s: str):
+    lines = s.splitlines()
+    if len(lines) > ERROR_NUM_LINES:
+        truncated_lines = len(lines) - ERROR_NUM_LINES
+        displayed_lines = lines[-ERROR_NUM_LINES:]
+        eprint(f'({truncated_lines} hidden lines)\n' + '\n'.join(displayed_lines) + '\n', end='')
+    else:
+        eprint(s, end='')
 
 class Settings:
     march: str = 'i'
@@ -161,16 +173,18 @@ def compile_asm(path: str, out: str, settings: Settings):
     riscv_objcopy = subprocess.run(argv, capture_output = True)
     riscv_objcopy.check_returncode()
 
-def run_elf(root: str, path: str, settings: Settings, syscalls = 'testing'):
+def run_elf(root: str, path: str, settings: Settings, syscalls = 'testing', htif = False):
     cli_bin = os.path.join(root, 'target', 'debug', 'cli')
     argv = [cli_bin, "-S", syscalls]
     argv += ['-t', 'all']
     for v in settings.allow_trap:
         argv += ['-t', v + '=allow']
+    if htif:
+        argv += ['--htif']
     argv += [path]
 
     log_info('cmd = ' + ' '.join(argv))
-    risico = subprocess.run(argv, capture_output = True)
+    risico = subprocess.run(argv, capture_output = True, timeout = TIMEOUT)
     risico.check_returncode()
 
 def run_bin(root: str, path: str, settings: Settings):
@@ -182,7 +196,7 @@ def run_bin(root: str, path: str, settings: Settings):
     argv += [path]
 
     log_info('cmd = ' + ' '.join(argv))
-    risico = subprocess.run(argv, capture_output = True)
+    risico = subprocess.run(argv, capture_output = True, timeout = TIMEOUT)
     risico.check_returncode()
 
 def find_all_with_ext(root: str, ext: str) -> list[str]:
@@ -383,7 +397,14 @@ def main():
 
                 eprint(f"{t}: error. return code = {e.returncode}")
                 eprint('--- STDERR ---')
-                eprint(e.stderr.decode(), end='')
+                display_error_truncated(e.stderr.decode())
+                eprint('--------------')
+            except subprocess.TimeoutExpired as e:
+                failed_runs += 1
+
+                eprint(f"{t}: timeout.")
+                eprint('--- STDERR ---')
+                display_error_truncated(e.stderr.decode())
                 eprint('--------------')
             except Exception as e:
                 failed_runs += 1
@@ -404,28 +425,7 @@ def main():
 
     IGNORED = [
         'rv32mi-p-breakpoint', # This assumes the presence of the RISC-V Debug Standard
-        'rv32mi-p-ma_fetch',   # @TEMP
-        'rv32mi-p-ma_addr',    # @TEMP
-        'rv32mi-p-sw-misaligned', # @TEMP
-        'rv32mi-p-mcsr', # @TEMP
-        'rv32mi-p-lw-misaligned', # @TEMP
-        'rv32mi-p-sh-misaligned', # @TEMP
-        'rv32mi-p-lh-misaligned', # @TEMP
-        'rv32mi-p-illegal', # @TEMP
-        'rv32mi-p-scall', # @TEMP
     ]
-
-    ALLOWED_TRAPS = {
-        'rv32mi-p-illegal': ['illegal_instr'],
-    }
-
-    SYSCALLS = {
-        'rv32ui': 'linux',
-        'rv32um': 'linux',
-        'rv32uc': 'linux',
-        'rv32uf': 'linux',
-        'rv32mi': 'trapvec',
-    }
 
     print()
     print(f"[riscv-tests unit tests]:")
@@ -446,29 +446,26 @@ def main():
             print(f"{file}: \r", end = '')
 
             settings = Settings()
-            settings.allow_trap = ['ecall']
-
-            if file in ALLOWED_TRAPS:
-                settings.allow_trap += ALLOWED_TRAPS[file]
+            settings.allow_trap = ['all']
 
             category = file.split('-')[0]
 
-            run_elf(project_dirs['PROJECT_ROOT'], path, settings, syscalls=SYSCALLS[category])
+            run_elf(project_dirs['PROJECT_ROOT'], path, settings, syscalls='trapvec', htif = True)
             print(f"{file}: success")
         except subprocess.CalledProcessError as e:
             failed_runs += 1
 
-            NUM_DISPLAYED_LINES = 20
-
             eprint(f"{file}: error. return code = {e.returncode} (test = {e.returncode >> 1})")
             eprint('--- STDERR ---')
-            stderr = e.stderr.decode()
-            stderr_lines = stderr.splitlines()
-            if len(stderr_lines) > NUM_DISPLAYED_LINES:
-                eprint(f'({len(stderr_lines) - NUM_DISPLAYED_LINES} hidden lines)\n' + '\n'.join(stderr_lines[-NUM_DISPLAYED_LINES:]) + '\n', end='')
-            else:
-                eprint(stderr, end='')
+            display_error_truncated(e.stderr.decode())
 
+            eprint('--------------')
+        except subprocess.TimeoutExpired as e:
+            failed_runs += 1
+
+            eprint(f"{file}: timeout.")
+            eprint('--- STDERR ---')
+            display_error_truncated(e.stderr.decode())
             eprint('--------------')
         except Exception as e:
             failed_runs += 1

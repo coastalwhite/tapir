@@ -16,7 +16,7 @@ pub mod syscall;
 pub mod trap;
 
 // pub use decode::Instruction;
-pub use execute::State;
+pub use execute::{State, StateECallBehavior};
 
 use self::device_config::{Isa, Section};
 use self::memory::MappedMemory;
@@ -26,7 +26,7 @@ use self::trap::TrapBehavior;
 
 pub struct RuntimeParameters {
     isa: Isa,
-    syscall_behavior: ECallBehavior,
+    ecall_behavior: StateECallBehavior,
     trap_behavior: TrapBehavior,
     entry: u32,
     sections: OrderedSections,
@@ -35,7 +35,7 @@ pub struct RuntimeParameters {
 impl RuntimeParameters {
     pub fn new(
         isa: Isa,
-        syscall_behavior: ECallBehavior,
+        ecall_behavior: StateECallBehavior,
         trap_behavior: TrapBehavior,
         entry: u32,
         sections: Vec<Section>,
@@ -44,7 +44,7 @@ impl RuntimeParameters {
 
         Self {
             isa,
-            syscall_behavior,
+            ecall_behavior,
             trap_behavior,
             entry,
             sections,
@@ -58,10 +58,11 @@ impl RuntimeParameters {
     pub fn state(&self) -> State<MappedMemory> {
         State::new(
             self.isa,
-            self.syscall_behavior,
+            self.ecall_behavior,
             self.trap_behavior,
             self.entry,
             self.allocate_memory(),
+            None,
         )
     }
 }

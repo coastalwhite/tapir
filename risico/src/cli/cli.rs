@@ -1,5 +1,7 @@
 use std::iter::FusedIterator;
 
+use risico::StateECallBehavior;
+use risico::repr::Addr;
 use risico::syscall::ECallBehavior;
 use risico::trap::TrapBehavior;
 
@@ -26,6 +28,7 @@ Flags:
  -t / --traps <trap handler>: how to handle traps
  -L / --logging <list of logging topics>: which logging to perform
  -T / --trace <output file>: output a trace to a file
+ -H / --htif: the enable the Host Target Interface
 
 Raw Image Flags:
  -E / --entry <entry address: select the entry address
@@ -51,9 +54,10 @@ pub struct CliFlags {
     file: String,
     do_dump: bool,
     run_type: RunType,
-    system_call_behavior: ECallBehavior,
+    ecall_behavior: StateECallBehavior,
     trap_behavior: TrapBehavior,
     logging: LoggingConfiguration,
+    htif: bool,
     trace: Option<String>,
 }
 
@@ -165,11 +169,12 @@ impl CliFlags {
         let mut raw_image_flags = RawImageFlags::default();
         let mut run_type = RunType::SyscallEmulation;
         let mut trap_behavior = TrapBehavior::empty();
-        let mut system_call_behavior = ECallBehavior::Linux;
+        let mut ecall_behavior = StateECallBehavior::default();
         let mut logging = LoggingConfiguration {
             show_instructions: false,
             show_cycles: false,
         };
+        let mut htif = false;
         let mut trace = None;
 
         let mut args = std::env::args();
@@ -218,7 +223,7 @@ impl CliFlags {
                         continue;
                     };
 
-                    system_call_behavior = syscall_behavior;
+                    ecall_behavior.machine = syscall_behavior;
                 }
                 "--traps" | "-t" => {
                     let Some(set_trap_behavior) = args.next() else {
@@ -267,6 +272,9 @@ impl CliFlags {
 
                     logging = logging_config;
                 }
+                "--htif" | "-H" => {
+                    htif = true;
+                }
                 "--trace" | "-T" => {
                     let Some(trace_value) = args.next() else {
                         eprintln!("No trace file given");
@@ -314,9 +322,10 @@ impl CliFlags {
             file,
             do_dump,
             run_type,
-            system_call_behavior,
+            ecall_behavior,
             trap_behavior,
             logging,
+            htif,
             trace,
         }
     }
@@ -333,8 +342,8 @@ impl CliFlags {
         &self.run_type
     }
 
-    pub fn system_call_behavior(&self) -> ECallBehavior {
-        self.system_call_behavior
+    pub fn ecall_behavior(&self) -> StateECallBehavior {
+        self.ecall_behavior
     }
 
     pub fn trap_behavior(&self) -> TrapBehavior {
@@ -343,6 +352,10 @@ impl CliFlags {
 
     pub fn logging(&self) -> &LoggingConfiguration {
         &self.logging
+    }
+
+    pub fn htif(&self) -> bool {
+        self.htif
     }
 
     pub fn trace(&self) -> Option<&str> {

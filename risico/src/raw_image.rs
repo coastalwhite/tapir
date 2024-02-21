@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::device_config::Isa;
+use crate::execute::StateECallBehavior;
 use crate::memory::{BackingStore, MappedMemory};
 use crate::repr::Addr;
 use crate::trap::TrapBehavior;
@@ -58,12 +59,13 @@ impl RawImage {
     pub fn execute(
         &self,
         entry: u32,
-        syscall_behavior: ECallBehavior,
+        ecall_behavior: StateECallBehavior,
         trap_behavior: TrapBehavior,
     ) {
         let mut memory = MappedMemory::full();
         memory.write_to(Addr::default(), &self.buffer);
-        let mut state = State::new(Isa::Rv32I, syscall_behavior, trap_behavior, entry, memory);
+        // @TODO: HTIF
+        let mut state = State::new(Isa::Rv32I, ecall_behavior, trap_behavior, entry, memory, None);
 
         loop {
             state.execute_mut();
