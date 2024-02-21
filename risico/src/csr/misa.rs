@@ -7,7 +7,7 @@ pub struct MIsa(rvisa::MIsa);
 
 impl MIsa {
     pub fn new(_: &CsrInitContext) -> Self {
-        Self(rvisa::MIsa::from_str("rv32if").unwrap())
+        Self(rvisa::MIsa::from_str("rv32imcf").unwrap())
     }
 
     pub fn read(&self) -> u32 {
