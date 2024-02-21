@@ -1,10 +1,11 @@
 use rvhwfuzzer_encoding::CsrIndex;
 
 pub mod fcsr;
+pub mod mcause;
+pub mod mdeleg;
 pub mod misa;
 pub mod mstatus;
 pub mod mtvec;
-pub mod mcause;
 
 pub enum CsrError {
     UnknownRegister,
@@ -132,11 +133,11 @@ csrs! {
         0x300 = (is_available, read, write                  ),
         0x310 = (is_available, mstatush_read, mstatush_write),
     ];
-    misa:      misa::MIsa     [ 0x301 = (is_available, read, write) ];
-    medeleg:   Empty          [ 0x302 = (is_available, read, write) ];
-    mideleg:   Empty          [ 0x303 = (is_available, read, write) ];
-    mie:       Empty          [ 0x304 = (is_available, read, write) ];
-    mtvec:     mtvec::Mtvec   [ 0x305 = (is_available, read, write) ];
+    misa:      misa::MIsa      [ 0x301 = (is_available, read, write) ];
+    medeleg:   mdeleg::MEDeleg [ 0x302 = (is_available, read, write) ];
+    mideleg:   mdeleg::MIDeleg [ 0x303 = (is_available, read, write) ];
+    mie:       Empty           [ 0x304 = (is_available, read, write) ];
+    mtvec:     mtvec::Mtvec    [ 0x305 = (is_available, read, write) ];
 
     mscratch:  Simple         [ 0x340 = (is_available, read, write) ];
     mepc:      Simple         [ 0x341 = (is_available, read, write) ];
