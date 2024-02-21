@@ -349,7 +349,7 @@ impl<M: BackingStore> State<M> {
                     std::process::exit(1);
                 }
 
-                self.registers.csr.mepc.write(next_pc.as_u32());
+                self.registers.csr.mepc.write(self.pc().as_u32());
                 self.registers.csr.mcause.write(TrapCause::$trap as u32);
                 let addr = self
                     .registers
