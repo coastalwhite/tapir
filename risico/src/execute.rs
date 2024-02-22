@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::process::exit;
 
-use ::softfloat_wrapper::{Float, F32};
+use rsoftfloat::f32::F32;
 use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
 
 use crate::csr::fcsr::ExceptionFlags;
@@ -192,23 +192,7 @@ impl<M: BackingStore> State<M> {
         self.registers.pc
     }
 
-    pub fn prepare_exception_flags(&self) {
-        let fflags = self.registers.csr.fcsr.get_fflags();
-        let fflags: ::softfloat_wrapper::ExceptionFlags = fflags.into();
-
-        fflags.set();
-    }
-
-    pub fn store_exception_flags(&mut self) {
-        let mut fflags = ::softfloat_wrapper::ExceptionFlags::default();
-        fflags.get();
-
-        let fflags = ExceptionFlags::from(fflags);
-
-        self.registers.csr.fcsr.set_fflags(fflags);
-    }
-
-    pub fn get_rounding_mode(&mut self, rm: u8) -> ::softfloat_wrapper::RoundingMode {
+    pub fn get_rounding_mode(&mut self, rm: u8) -> rsoftfloat::RoundingMode {
         // Dynamic rounding mode
         let rm = if rm == 0b111 {
             self.registers.csr.fcsr.frm_read() as u8
@@ -216,13 +200,13 @@ impl<M: BackingStore> State<M> {
             rm
         };
 
-        use ::softfloat_wrapper::RoundingMode as R;
+        use rsoftfloat::RoundingMode as R;
         match rm {
             0b000 => R::TiesToEven,
-            0b001 => R::TowardZero,
-            0b010 => R::TowardNegative,
-            0b011 => R::TowardPositive,
-            0b100 => R::TiesToAway,
+            0b001 => R::ToZero,
+            0b010 => R::Down,
+            0b011 => R::Up,
+            0b100 => R::TiesToMaxMagnitude,
 
             // @TODO: properly handle error
             _ => {
@@ -288,7 +272,10 @@ impl<M: BackingStore> State<M> {
     pub fn store_datamem_word(&mut self, at: Addr, value: impl Into<Word>) {
         let value = value.into();
 
-        if self.htif.is_some_and(|htif_addr| htif_addr == at || htif_addr.offset(4) == at) {
+        if self
+            .htif
+            .is_some_and(|htif_addr| htif_addr == at || htif_addr.offset(4) == at)
+        {
             self.htif_to_host(value.as_u32());
             return;
         }
@@ -304,6 +291,34 @@ impl<M: BackingStore> State<M> {
 
     pub fn store_datamem_byte(&mut self, at: Addr, value: u8) {
         self.memory_mut().set_byte(at, value)
+    }
+
+    pub fn trigger_trap(&mut self, trap: TrapCause) {
+        if self
+            .trap_behavior
+            .contains(TrapBehavior::abort_on_trap(trap))
+        {
+            let instruction_mem = self.instruction_fetch();
+            let instruction = self.instruction_decode(instruction_mem);
+            let instruction = instruction
+                .map_or(format!("<unknown 0x{instruction_mem:08X}>"), |i| {
+                    format!("{i}")
+                });
+
+            eprintln!(
+                "[ABORT][PC=0x{:08X}]: Trap '{trap:?}' on '{instruction}'",
+                self.pc(),
+            );
+            std::process::exit(1);
+        }
+
+        eprintln!("[PC={:08X}]: Trap triggered {trap:?}", self.pc().as_u32(),);
+
+        self.registers.csr.mepc.write(self.pc().as_u32());
+        self.registers.csr.mcause.write(trap as u32);
+        let addr = self.registers.csr.mtvec.cause_addr(trap).unwrap();
+
+        self.registers.pc = Addr::from(addr);
     }
 
     pub fn instruction_fetch(&mut self) -> Word {
@@ -334,34 +349,6 @@ impl<M: BackingStore> State<M> {
         use rvhwfuzzer_encoding::Instruction::*;
 
         let mut next_pc = self.pc().offset(instruction.num_bytes() as i8);
-
-        macro_rules! trigger_trap {
-            ($trap:ident) => {{
-                if self
-                    .trap_behavior
-                    .contains(TrapBehavior::abort_on_trap(TrapCause::$trap))
-                {
-                    eprintln!(
-                        "[ABORT][PC=0x{:08x}]: Trap '{}' on '{instruction}'",
-                        self.pc(),
-                        stringify!($trap)
-                    );
-                    std::process::exit(1);
-                }
-
-                self.registers.csr.mepc.write(self.pc().as_u32());
-                self.registers.csr.mcause.write(TrapCause::$trap as u32);
-                let addr = self
-                    .registers
-                    .csr
-                    .mtvec
-                    .cause_addr(TrapCause::$trap)
-                    .unwrap();
-                
-                self.registers.pc = Addr::from(addr);
-                return;
-            }};
-        }
 
         eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
 
@@ -740,7 +727,8 @@ impl<M: BackingStore> State<M> {
             }
             FmaddS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -759,22 +747,17 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                self.prepare_exception_flags();
-                let mut result = rs1.fused_mul_add(rs2, rs3, rm);
-                self.store_exception_flags();
+                let (mut result, flags) = F32::fmadd(rs1, rs2, rs3, rm);
 
-                if result.is_nan() {
-                    result = F32::from_bits(0x7FC0_0000);
-                }
-
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FnmsubS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -793,22 +776,17 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                self.prepare_exception_flags();
-                let mut result = (rs1.neg()).fused_mul_add(rs2, rs3, rm);
-                self.store_exception_flags();
+                let (mut result, flags) = F32::fnmsub(rs1, rs2, rs3, rm);
 
-                if result.is_nan() {
-                    result = F32::from_bits(0x7FC0_0000);
-                }
-
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmsubS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -827,22 +805,17 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                self.prepare_exception_flags();
-                let mut result = rs1.fused_mul_add(rs2, rs3.neg(), rm);
-                self.store_exception_flags();
+                let (mut result, flags) = F32::fmsub(rs1, rs2, rs3, rm);
 
-                if result.is_nan() {
-                    result = F32::from_bits(0x7FC0_0000);
-                }
-
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FnmaddS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -861,22 +834,17 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                self.prepare_exception_flags();
-                let mut result = (rs1.neg()).fused_mul_add(rs2, rs3.neg(), rm);
-                self.store_exception_flags();
+                let (mut result, flags) = F32::fnmadd(rs1, rs2, rs3, rm);
 
-                if result.is_nan() {
-                    result = F32::from_bits(0x7FC0_0000);
-                }
-
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Fsw(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rs1 = args.rs1();
@@ -894,7 +862,8 @@ impl<M: BackingStore> State<M> {
             }
             Flw(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -912,7 +881,8 @@ impl<M: BackingStore> State<M> {
             }
             FmulS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -928,18 +898,17 @@ impl<M: BackingStore> State<M> {
                 let rs1 = F32::from_f32(rs1);
                 let rs2 = F32::from_f32(rs2);
 
-                self.prepare_exception_flags();
-                let result = rs1.mul(rs2, rm);
-                self.store_exception_flags();
+                let (result, flags) = F32::mul(rs1, rs2, rm);
 
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FdivS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -955,18 +924,17 @@ impl<M: BackingStore> State<M> {
                 let rs1 = F32::from_f32(rs1);
                 let rs2 = F32::from_f32(rs2);
 
-                self.prepare_exception_flags();
-                let result = rs1.div(rs2, rm);
-                self.store_exception_flags();
+                let (result, flags) = F32::div(rs1, rs2, rm);
 
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FaddS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -982,22 +950,17 @@ impl<M: BackingStore> State<M> {
                 let rs1 = F32::from_f32(rs1);
                 let rs2 = F32::from_f32(rs2);
 
-                self.prepare_exception_flags();
-                let mut result = rs1.add(rs2, rm);
-                self.store_exception_flags();
+                let (result, flags) = F32::add(rs1, rs2, rm);
 
-                if result.is_nan() {
-                    result = F32::from_bits(0x7FC0_0000);
-                }
-
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsubS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -1013,21 +976,17 @@ impl<M: BackingStore> State<M> {
                 let rs1 = F32::from_f32(rs1);
                 let rs2 = F32::from_f32(rs2);
 
-                self.prepare_exception_flags();
-                let mut result = rs1.sub(rs2, rm).to_bits();
-                self.store_exception_flags();
+                let (result, flags) = F32::sub(rs1, rs2, rm);
 
-                if rsoftfloat::f32::F32::from_bits(result).is_nan() {
-                    result = rsoftfloat::f32::F32::CANNONICAL_NAN.to_bits();
-                }
-
-                self.registers.set_freg(rd, f32::from_bits(result));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FltS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1037,20 +996,19 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                let mut result = rs1 < rs2;
+                let rs1 = F32::from_f32(rs1);
+                let rs2 = F32::from_f32(rs2);
 
-                if rs1.is_nan() | rs2.is_nan() {
-                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
-                    result = false;
-                }
+                let (result, flags) = F32::lt(rs1, rs2);
 
+                self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set(rd, u32::from(result));
-
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FminS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1060,21 +1018,20 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                let rs1 = rsoftfloat::f32::F32::from_f32(rs1);
-                let rs2 = rsoftfloat::f32::F32::from_f32(rs2);
+                let rs1 = F32::from_f32(rs1);
+                let rs2 = F32::from_f32(rs2);
 
                 let (result, flags) = rs1.min(rs2);
-                self.registers
-                    .csr
-                    .fcsr
-                    .set_flag(ExceptionFlags::from_bits(flags.as_u8()));
+
+                self.registers.csr.fcsr.add_fflags(flags);
                 self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmaxS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1084,21 +1041,20 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                let rs1 = rsoftfloat::f32::F32::from_f32(rs1);
-                let rs2 = rsoftfloat::f32::F32::from_f32(rs2);
+                let rs1 = F32::from_f32(rs1);
+                let rs2 = F32::from_f32(rs2);
 
                 let (result, flags) = rs1.max(rs2);
-                self.registers
-                    .csr
-                    .fcsr
-                    .set_flag(ExceptionFlags::from_bits(flags.as_u8()));
+
+                self.registers.csr.fcsr.add_fflags(flags);
                 self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1114,7 +1070,8 @@ impl<M: BackingStore> State<M> {
             }
             FsgnjnS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1130,7 +1087,8 @@ impl<M: BackingStore> State<M> {
             }
             FsgnjxS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1148,7 +1106,8 @@ impl<M: BackingStore> State<M> {
             }
             FleS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1158,20 +1117,20 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                let mut result = rs1 <= rs2;
+                let rs1 = F32::from_f32(rs1);
+                let rs2 = F32::from_f32(rs2);
 
-                if rs1.is_nan() | rs2.is_nan() {
-                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
-                    result = false;
-                }
+                let (result, flags) = F32::le(rs1, rs2);
 
+                self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set(rd, u32::from(result));
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FeqS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1181,20 +1140,20 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs2 = self.registers.get_freg(rs2);
 
-                let rs1 = rsoftfloat::f32::F32::from_f32(rs1);
-                let rs2 = rsoftfloat::f32::F32::from_f32(rs2);
+                let rs1 = F32::from_f32(rs1);
+                let rs2 = F32::from_f32(rs2);
 
                 let (result, flags) = rs1.eq(rs2);
-                let flags = ExceptionFlags::from_bits(flags.as_u8());
 
-                self.registers.csr.fcsr.set_flag(flags);
+                self.registers.csr.fcsr.add_fflags(flags);
                 self.registers.set(rd, u32::from(result));
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtSW(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -1215,7 +1174,8 @@ impl<M: BackingStore> State<M> {
             }
             FcvtWS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -1249,7 +1209,8 @@ impl<M: BackingStore> State<M> {
             }
             FsqrtS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -1276,7 +1237,8 @@ impl<M: BackingStore> State<M> {
             }
             FcvtSWu(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -1297,7 +1259,8 @@ impl<M: BackingStore> State<M> {
             }
             FcvtWuS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rm = args.rm();
@@ -1331,7 +1294,8 @@ impl<M: BackingStore> State<M> {
             }
             FclassS(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1358,7 +1322,8 @@ impl<M: BackingStore> State<M> {
             }
             FmvWX(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1372,7 +1337,8 @@ impl<M: BackingStore> State<M> {
             }
             FmvXW(args) => {
                 if self.registers().csr.mstatus.fs() == ExtStatus::Off {
-                    trigger_trap!(IllegalInstruction);
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
                 }
 
                 let rd = args.rd();
@@ -1397,7 +1363,7 @@ impl<M: BackingStore> State<M> {
                         eprintln!("[ERROR][CSRRW] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
                     }
-                    trigger_trap!(IllegalInstruction);
+                    return self.trigger_trap(TrapCause::IllegalInstruction);
                 };
 
                 self.registers.set(rd, value);
@@ -1420,7 +1386,7 @@ impl<M: BackingStore> State<M> {
                         eprintln!("[ERROR][CSRRS] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
                     }
-                    trigger_trap!(IllegalInstruction);
+                    return self.trigger_trap(TrapCause::IllegalInstruction);
                 };
 
                 self.registers.set(rd, value);
@@ -1443,7 +1409,7 @@ impl<M: BackingStore> State<M> {
                         eprintln!("[ERROR][CSRRC] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
                     }
-                    trigger_trap!(IllegalInstruction);
+                    return self.trigger_trap(TrapCause::IllegalInstruction);
                 };
 
                 self.registers.set(rd, value);
@@ -1459,7 +1425,7 @@ impl<M: BackingStore> State<M> {
                         eprintln!("[ERROR][CSRRWI] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
                     }
-                    trigger_trap!(IllegalInstruction);
+                    return self.trigger_trap(TrapCause::IllegalInstruction);
                 };
 
                 self.registers.set(rd, value);
@@ -1475,7 +1441,7 @@ impl<M: BackingStore> State<M> {
                         eprintln!("[ERROR][CSRRSI] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
                     }
-                    trigger_trap!(IllegalInstruction);
+                    return self.trigger_trap(TrapCause::IllegalInstruction);
                 };
 
                 self.registers.set(rd, value);
@@ -1491,17 +1457,18 @@ impl<M: BackingStore> State<M> {
                         eprintln!("[ERROR][CSRRCI] Missing CSR: {csr} (0x{csr:03x}) ");
                         std::process::exit(1);
                     }
-                    trigger_trap!(IllegalInstruction);
+                    return self.trigger_trap(TrapCause::IllegalInstruction);
                 };
 
                 self.registers.set(rd, value);
             }
             Ecall(_args) => {
                 if self.current_ecall_behavior() == ECallBehavior::TrapVector {
-                    match self.current_privilege() {
-                        PrivilegeLevel::Machine => trigger_trap!(EcallMmode),
-                        PrivilegeLevel::User => trigger_trap!(EcallUmode),
-                    }
+                    self.trigger_trap(match self.current_privilege() {
+                        PrivilegeLevel::Machine => TrapCause::EcallMmode,
+                        PrivilegeLevel::User => TrapCause::EcallUmode,
+                    });
+                    return;
                 }
 
                 match self
@@ -1526,7 +1493,7 @@ impl<M: BackingStore> State<M> {
                 }
             }
             Ebreak(_args) => {
-                trigger_trap!(Breakpoint)
+                return self.trigger_trap(TrapCause::Breakpoint);
             }
             Fence(_) => {}
             FenceI(_) => {}
@@ -1952,34 +1919,12 @@ impl<M: BackingStore> State<M> {
     pub fn execute_mut(&mut self) {
         let imemory = self.instruction_fetch();
         let Some(instruction) = self.instruction_decode(imemory) else {
-            if self
-                .trap_behavior
-                .contains(TrapBehavior::abort_on_trap(TrapCause::IllegalInstruction))
-            {
-                eprintln!(
-                    "[ABORT][PC=0x{:08x}]: Illegal Instruction '0x{:08x}'",
-                    self.pc(),
-                    imemory.as_u32()
-                );
-                std::process::exit(1);
-            }
-
-            let instr_num_bytes = if imemory.to_le_bytes()[0] == 0b11 {
-                4
-            } else {
-                2
-            };
-            let next_pc = self.pc().offset(instr_num_bytes);
-
-            self.registers.csr.mepc.write(next_pc.as_u32());
-            let addr = self
-                .registers
-                .csr
-                .mtvec
-                .cause_addr(TrapCause::IllegalInstruction)
-                .unwrap();
-            self.registers.pc = Addr::from(addr);
-            return;
+            eprintln!(
+                "[PC={:08X}]: <unknown 0x{:08X}>",
+                self.pc(),
+                imemory.as_u32()
+            );
+            return self.trigger_trap(TrapCause::IllegalInstruction);
         };
         self.instruction_execute(instruction)
     }

@@ -14,6 +14,7 @@ pub enum MtvecMode {
 
 #[rustfmt::skip]
 #[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrapCause {
     InstructionAddressMisaligned = 0,
     InstructionAccessFault       = 1,

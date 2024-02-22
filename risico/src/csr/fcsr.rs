@@ -57,15 +57,15 @@ impl Into<::softfloat_wrapper::ExceptionFlags> for ExceptionFlags {
     }
 }
 
-impl From<::softfloat_wrapper::ExceptionFlags> for ExceptionFlags {
-    fn from(value: ::softfloat_wrapper::ExceptionFlags) -> Self {
+impl From<rsoftfloat::Flags> for ExceptionFlags {
+    fn from(value: rsoftfloat::Flags) -> Self {
         let mut flags = Self::empty();
 
         // @Hack. What is this. This should just be a bit cast.
         if value.is_invalid() {
             flags |= Self::INVALID;
         }
-        if value.is_infinite() {
+        if value.is_divide_by_zero() {
             flags |= Self::DIVIDE_BY_ZERO;
         }
         if value.is_overflow() {
@@ -106,6 +106,10 @@ impl Fcsr {
 
     pub fn set_fflags(&mut self, flags: ExceptionFlags) {
         self.fflags_write(flags.to_bits().into())
+    }
+
+    pub fn add_fflags(&mut self, flags: impl Into<ExceptionFlags>) {
+        self.set_fflags(self.get_fflags() | flags.into())
     }
 
     pub fn set_flag(&mut self, flag: ExceptionFlags) {
