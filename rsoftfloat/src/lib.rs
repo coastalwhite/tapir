@@ -19,6 +19,20 @@ pub enum RoundingMode {
     TiesToMaxMagnitude,
 }
 
+impl Into<softfloat_wrapper::RoundingMode> for RoundingMode {
+    fn into(self) -> softfloat_wrapper::RoundingMode {
+        use softfloat_wrapper::RoundingMode as R;
+
+        match self {
+            Self::TiesToEven => R::TiesToEven,
+            Self::ToZero => R::TowardZero,
+            Self::Down => R::TowardNegative,
+            Self::Up => R::TowardPositive,
+            Self::TiesToMaxMagnitude => R::TiesToAway,
+        }
+    }
+}
+
 impl Flags {
     pub const INEXACT: Self = Self(0b00001);
     pub const UNDERFLOW: Self = Self(0b00010);
@@ -34,6 +48,31 @@ impl Flags {
     #[inline]
     pub const fn contains(self, x: Flags) -> bool {
         self.0 & x.0 == x.0
+    }
+
+    #[inline]
+    pub fn is_inexact(self) -> bool {
+        self.contains(Self::INEXACT)
+    }
+
+    #[inline]
+    pub fn is_underflow(self) -> bool {
+        self.contains(Self::UNDERFLOW)
+    }
+    
+    #[inline]
+    pub fn is_overflow(self) -> bool {
+        self.contains(Self::OVERFLOW)
+    }
+
+    #[inline]
+    pub fn is_divide_by_zero(self) -> bool {
+        self.contains(Self::DIVIDE_BY_ZERO)
+    }
+
+    #[inline]
+    pub fn is_invalid(self) -> bool {
+        self.contains(Self::INVALID)
     }
 
     #[inline]
@@ -68,8 +107,35 @@ impl BitOrAssign for Flags {
     }
 }
 
+impl From<::softfloat_wrapper::ExceptionFlags> for Flags {
+    fn from(value: ::softfloat_wrapper::ExceptionFlags) -> Self {
+        let mut flags = Self::empty();
+
+        // @Hack. What is this. This should just be a bit cast.
+        if value.is_invalid() {
+            flags |= Self::INVALID;
+        }
+        if value.is_infinite() {
+            flags |= Self::DIVIDE_BY_ZERO;
+        }
+        if value.is_overflow() {
+            flags |= Self::OVERFLOW;
+        }
+        if value.is_underflow() {
+            flags |= Self::UNDERFLOW;
+        }
+        if value.is_inexact() {
+            flags |= Self::INEXACT;
+        }
+
+        flags
+    }
+}
+
 pub mod f32 {
     use std::cmp::Ordering;
+
+    use softfloat_wrapper::ExceptionFlags;
 
     use crate::Flags;
 
@@ -330,21 +396,59 @@ pub mod f32 {
             Self::shift_rounding(sign, mantissa, shift_distance, rm)
         }
 
+        #[inline(never)]
         pub fn eq(self, other: Self) -> (bool, Flags) {
             let a = self;
             let b = other;
 
             let mut flags = Flags::empty();
 
-            if a.is_nan() | a.is_nan() {
-                if a.is_signaling_nan() | b.is_signaling_nan() {
-                    flags |= Flags::INVALID;
+            let output;
+
+            'to_bits: {
+                if a.is_nan() | a.is_nan() {
+                    if a.is_signaling_nan() | b.is_signaling_nan() {
+                        flags |= Flags::INVALID;
+                    }
+
+                    output = false;
+                    break 'to_bits;
                 }
 
-                return (false, flags);
+                output = a.to_bits() == b.to_bits();
             }
 
-            (a.to_bits() == b.to_bits(), flags)
+            (output, flags)
+        }
+
+        pub fn lt(self, other: Self) -> (bool, Flags) {
+            let a = self.to_f32();
+            let b = other.to_f32();
+
+            let mut result = a < b;
+            let mut flags = Flags::empty();
+
+            if a.is_nan() | b.is_nan() {
+                flags |= Flags::INVALID;
+                result = false;
+            }
+
+            (result, flags)
+        }
+
+        pub fn le(self, other: Self) -> (bool, Flags) {
+            let a = self.to_f32();
+            let b = other.to_f32();
+
+            let mut result = a <= b;
+            let mut flags = Flags::empty();
+
+            if a.is_nan() | b.is_nan() {
+                flags |= Flags::INVALID;
+                result = false;
+            }
+
+            (result, flags)
         }
 
         pub fn max(self, other: Self) -> (Self, Flags) {
@@ -453,7 +557,107 @@ pub mod f32 {
             (a, Flags::empty())
         }
 
-        pub fn mul(a: Self, b: Self, rm: RoundingMode) -> Self {
+        pub fn mul(a: Self, b: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            
+            let rm = rm.into();
+
+            let z = a.mul(b, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            (result, fflags)
+        }
+
+        pub fn div(a: Self, b: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            
+            let rm = rm.into();
+
+            let z = a.div(b, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            (result, fflags)
+        }
+
+        pub fn add(a: Self, b: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            
+            let rm = rm.into();
+
+            let z = a.add(b, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = Self::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
+        }
+
+        pub fn sub(a: Self, b: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            
+            let rm = rm.into();
+
+            let z = a.sub(b, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = Self::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
+        }
+
+        pub fn rust_mul(a: Self, b: Self, rm: RoundingMode) -> Self {
             let sign_z = a.sign() ^ b.sign();
 
             if a.is_nan_or_infinity() | b.is_nan_or_infinity() {
@@ -537,6 +741,125 @@ pub mod f32 {
             }
 
             Self::pack(sign_z, exp_z as u8, frac_z)
+        }
+
+        pub fn fmadd(a: Self, b: Self, c: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            let c = softfloat_wrapper::F32::from_bits(c.to_bits());
+            
+            let rm = rm.into();
+
+            let z = a.fused_mul_add(b, c, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = F32::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
+        }
+
+        pub fn fmsub(a: Self, b: Self, c: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            let c = softfloat_wrapper::F32::from_bits(c.to_bits());
+
+            let c = c.neg();
+            
+            let rm = rm.into();
+
+            let z = a.fused_mul_add(b, c, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = F32::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
+        }
+
+        pub fn fnmadd(a: Self, b: Self, c: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            let c = softfloat_wrapper::F32::from_bits(c.to_bits());
+
+            let a = a.neg();
+            let c = c.neg();
+            
+            let rm = rm.into();
+
+            let z = a.fused_mul_add(b, c, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = F32::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
+        }
+
+        pub fn fnmsub(a: Self, b: Self, c: Self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(a.to_bits());
+            let b = softfloat_wrapper::F32::from_bits(b.to_bits());
+            let c = softfloat_wrapper::F32::from_bits(c.to_bits());
+
+            let a = a.neg();
+            
+            let rm = rm.into();
+
+            let z = a.fused_mul_add(b, c, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = F32::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
         }
     }
 }
