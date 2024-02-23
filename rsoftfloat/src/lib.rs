@@ -19,6 +19,21 @@ pub enum RoundingMode {
     TiesToMaxMagnitude,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum FloatClass {
+    NegativeInfinity = 0,
+    NegativeNormal = 1,
+    NegativeSubnormal = 2,
+    NegativeZero = 3,
+    PositiveZero = 4,
+    PositiveSubnormal = 5,
+    PositiveNormal = 6,
+    PositiveInfinity = 7,
+    SignalingNaN = 8,
+    QuietNaN = 9,
+}
+
 impl Into<softfloat_wrapper::RoundingMode> for RoundingMode {
     fn into(self) -> softfloat_wrapper::RoundingMode {
         use softfloat_wrapper::RoundingMode as R;
@@ -59,7 +74,7 @@ impl Flags {
     pub fn is_underflow(self) -> bool {
         self.contains(Self::UNDERFLOW)
     }
-    
+
     #[inline]
     pub fn is_overflow(self) -> bool {
         self.contains(Self::OVERFLOW)
@@ -137,7 +152,7 @@ pub mod f32 {
 
     use softfloat_wrapper::ExceptionFlags;
 
-    use crate::Flags;
+    use crate::{Flags, FloatClass};
 
     use super::RoundingMode;
 
@@ -244,6 +259,16 @@ pub mod f32 {
         }
 
         #[inline(always)]
+        pub const fn is_sign_positive(self) -> bool {
+            !self.sign()
+        }
+
+        #[inline(always)]
+        pub const fn is_sign_negative(self) -> bool {
+            self.sign()
+        }
+
+        #[inline(always)]
         pub const fn is_subnormal(self) -> bool {
             (self.exponent() == 0x00) & (self.significant() != 0)
         }
@@ -266,7 +291,7 @@ pub mod f32 {
 
         #[inline(always)]
         pub const fn is_infinite(self) -> bool {
-            self.0 & 0x7FFF_FFFF == self.0 & 0x7F80_0000
+            self.0 & 0x7FFF_FFFF == 0x7F80_0000
         }
 
         #[inline(always)]
@@ -456,7 +481,7 @@ pub mod f32 {
             let b = other;
 
             let mut flags = Flags::empty();
-            
+
             if !a.is_nan_or_infinity() & !b.is_nan_or_infinity() {
                 let (sign_a, exp_a, significant_a) = a.unpack();
                 let (sign_b, exp_b, significant_b) = b.unpack();
@@ -464,7 +489,11 @@ pub mod f32 {
                 let sign_z = sign_a | sign_b;
 
                 use Ordering as O;
-                let result = match (sign_a.cmp(&sign_b), exp_a.cmp(&exp_b), significant_a.cmp(&significant_b)) {
+                let result = match (
+                    sign_a.cmp(&sign_b),
+                    exp_a.cmp(&exp_b),
+                    significant_a.cmp(&significant_b),
+                ) {
                     (O::Greater, _, _) => b,
                     (O::Less, _, _) => a,
                     (O::Equal, O::Less, _) if sign_z => a,
@@ -517,7 +546,11 @@ pub mod f32 {
                 let sign_z = sign_a | sign_b;
 
                 use Ordering as O;
-                let result = match (sign_a.cmp(&sign_b), exp_a.cmp(&exp_b), significant_a.cmp(&significant_b)) {
+                let result = match (
+                    sign_a.cmp(&sign_b),
+                    exp_a.cmp(&exp_b),
+                    significant_a.cmp(&significant_b),
+                ) {
                     (O::Greater, _, _) => a,
                     (O::Less, _, _) => b,
                     (O::Equal, O::Less, _) if sign_z => b,
@@ -557,6 +590,145 @@ pub mod f32 {
             (a, Flags::empty())
         }
 
+        pub fn from_i32(x: i32, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let rm = rm.into();
+
+            let z = ::softfloat_wrapper::F32::from_i32(x, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            (result, fflags)
+        }
+
+        pub fn from_u32(x: u32, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let rm = rm.into();
+
+            let z = ::softfloat_wrapper::F32::from_u32(x, rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            (result, fflags)
+        }
+
+        pub fn to_i32(self, rm: RoundingMode) -> (i32, Flags) {
+            use softfloat_wrapper::Float;
+
+            let rm = rm.into();
+
+            let a = self.to_f32();
+
+            const F32_I32_MIN: f32 = i32::MIN as f32;
+            const F32_I32_MAX: f32 = i32::MAX as f32;
+
+            let fflags;
+
+            let result = if a > F32_I32_MAX || self.is_nan() {
+                fflags = Flags::INVALID;
+                i32::MAX
+            } else if a < F32_I32_MIN {
+                fflags = Flags::INVALID;
+                i32::MIN
+            } else {
+                // Clear the exception flags
+                ExceptionFlags::default().set();
+
+                let a = ::softfloat_wrapper::F32::from_bits(self.to_bits());
+                let result = a.to_i32(rm, true);
+
+                // Fetch the resulting exception flags
+                let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+                flags.get();
+
+                fflags = Flags::from(flags);
+                result
+            };
+
+            (result, fflags)
+        }
+
+        pub fn to_u32(self, rm: RoundingMode) -> (u32, Flags) {
+            use softfloat_wrapper::Float;
+
+            let rm = rm.into();
+
+            let a = self.to_f32();
+
+            let fflags;
+
+            let result = if a > u32::MAX as f32 {
+                fflags = Flags::INVALID;
+                u32::MAX
+            } else if a < 0. {
+                if a > -1.0 {
+                    fflags = Flags::INEXACT;
+                } else {
+                    fflags = Flags::INVALID;
+                }
+                0
+            } else {
+                // Clear the exception flags
+                ExceptionFlags::default().set();
+
+                let a = ::softfloat_wrapper::F32::from_bits(self.to_bits());
+                let result = a.to_u32(rm, true);
+
+                // Fetch the resulting exception flags
+                let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+                flags.get();
+
+                fflags = Flags::from(flags);
+                result
+            };
+
+            (result, fflags)
+        }
+
+        pub fn sqrt(self, rm: RoundingMode) -> (Self, Flags) {
+            use softfloat_wrapper::Float;
+
+            // Clear the exception flags
+            ExceptionFlags::default().set();
+
+            let a = softfloat_wrapper::F32::from_bits(self.to_bits());
+
+            let rm = rm.into();
+
+            let z = a.sqrt(rm);
+
+            // Fetch the resulting exception flags
+            let mut flags = ::softfloat_wrapper::ExceptionFlags::default();
+            flags.get();
+
+            let mut result = F32::from_bits(z.to_bits());
+            let fflags = Flags::from(flags);
+
+            if result.is_nan() {
+                result = F32::CANNONICAL_NAN;
+            }
+
+            (result, fflags)
+        }
+
         pub fn mul(a: Self, b: Self, rm: RoundingMode) -> (Self, Flags) {
             use softfloat_wrapper::Float;
 
@@ -565,7 +737,7 @@ pub mod f32 {
 
             let a = softfloat_wrapper::F32::from_bits(a.to_bits());
             let b = softfloat_wrapper::F32::from_bits(b.to_bits());
-            
+
             let rm = rm.into();
 
             let z = a.mul(b, rm);
@@ -588,7 +760,7 @@ pub mod f32 {
 
             let a = softfloat_wrapper::F32::from_bits(a.to_bits());
             let b = softfloat_wrapper::F32::from_bits(b.to_bits());
-            
+
             let rm = rm.into();
 
             let z = a.div(b, rm);
@@ -611,7 +783,7 @@ pub mod f32 {
 
             let a = softfloat_wrapper::F32::from_bits(a.to_bits());
             let b = softfloat_wrapper::F32::from_bits(b.to_bits());
-            
+
             let rm = rm.into();
 
             let z = a.add(b, rm);
@@ -638,7 +810,7 @@ pub mod f32 {
 
             let a = softfloat_wrapper::F32::from_bits(a.to_bits());
             let b = softfloat_wrapper::F32::from_bits(b.to_bits());
-            
+
             let rm = rm.into();
 
             let z = a.sub(b, rm);
@@ -752,7 +924,7 @@ pub mod f32 {
             let a = softfloat_wrapper::F32::from_bits(a.to_bits());
             let b = softfloat_wrapper::F32::from_bits(b.to_bits());
             let c = softfloat_wrapper::F32::from_bits(c.to_bits());
-            
+
             let rm = rm.into();
 
             let z = a.fused_mul_add(b, c, rm);
@@ -782,7 +954,7 @@ pub mod f32 {
             let c = softfloat_wrapper::F32::from_bits(c.to_bits());
 
             let c = c.neg();
-            
+
             let rm = rm.into();
 
             let z = a.fused_mul_add(b, c, rm);
@@ -813,7 +985,7 @@ pub mod f32 {
 
             let a = a.neg();
             let c = c.neg();
-            
+
             let rm = rm.into();
 
             let z = a.fused_mul_add(b, c, rm);
@@ -843,7 +1015,7 @@ pub mod f32 {
             let c = softfloat_wrapper::F32::from_bits(c.to_bits());
 
             let a = a.neg();
-            
+
             let rm = rm.into();
 
             let z = a.fused_mul_add(b, c, rm);
@@ -860,6 +1032,22 @@ pub mod f32 {
             }
 
             (result, fflags)
+        }
+
+        pub fn class(self) -> FloatClass {
+            match self {
+                f if f.is_infinite() && f.is_sign_negative() => FloatClass::NegativeInfinity,
+                f if f.is_normal() && f.is_sign_negative() => FloatClass::NegativeNormal,
+                f if f.is_subnormal() && f.is_sign_negative() => FloatClass::NegativeSubnormal,
+                f if f.is_zero() && f.is_sign_negative() => FloatClass::NegativeZero,
+                f if f.is_zero() && f.is_sign_positive() => FloatClass::PositiveZero,
+                f if f.is_subnormal() && f.is_sign_positive() => FloatClass::PositiveSubnormal,
+                f if f.is_normal() && f.is_sign_positive() => FloatClass::PositiveNormal,
+                f if f.is_infinite() && f.is_sign_positive() => FloatClass::PositiveInfinity,
+                f if f.is_signaling_nan() => FloatClass::SignalingNaN,
+                f if f.is_quiet_nan() => FloatClass::QuietNaN,
+                _ => unreachable!(),
+            }
         }
     }
 }

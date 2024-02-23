@@ -1163,12 +1163,11 @@ impl<M: BackingStore> State<M> {
                 let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get(rs1);
-                self.prepare_exception_flags();
-                let result = F32::from_i32(rs1.as_i32(), rm);
-                self.store_exception_flags();
 
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                let (result, flags) = F32::from_i32(rs1.as_i32(), rm);
+
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
@@ -1186,23 +1185,11 @@ impl<M: BackingStore> State<M> {
 
                 let rs1 = self.registers.get_freg(rs1);
 
-                const F32_I32_MIN: f32 = i32::MIN as f32;
-                const F32_I32_MAX: f32 = i32::MAX as f32;
+                let rs1 = F32::from_f32(rs1);
 
-                let result = if rs1 > F32_I32_MAX || rs1.is_nan() {
-                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
-                    i32::MAX
-                } else if rs1 < F32_I32_MIN {
-                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
-                    i32::MIN
-                } else {
-                    self.prepare_exception_flags();
-                    let rs1 = F32::from_f32(rs1);
-                    let result = rs1.to_i32(rm, true);
-                    self.store_exception_flags();
-                    result
-                };
+                let (result, flags) = rs1.to_i32(rm);
 
+                self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set(rd, result);
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
@@ -1222,16 +1209,10 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
                 let rs1 = F32::from_f32(rs1);
 
-                self.prepare_exception_flags();
-                let mut result = Float::sqrt(&rs1, rm);
-                self.store_exception_flags();
+                let (result, flags) = rs1.sqrt(rm);
 
-                if result.is_nan() {
-                    result = F32::from_bits(0x7FC0_0000);
-                }
-
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
@@ -1248,12 +1229,11 @@ impl<M: BackingStore> State<M> {
                 let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get(rs1);
-                self.prepare_exception_flags();
-                let result = F32::from_u32(rs1.as_u32(), rm);
-                self.store_exception_flags();
 
-                self.registers
-                    .set_freg(rd, f32::from_bits(result.to_bits()));
+                let (result, flags) = F32::from_u32(rs1.as_u32(), rm);
+
+                self.registers_mut().csr.fcsr.add_fflags(flags);
+                self.registers.set_freg(rd, result.to_f32());
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
@@ -1270,24 +1250,12 @@ impl<M: BackingStore> State<M> {
                 let rm = self.get_rounding_mode(rm as u8);
 
                 let rs1 = self.registers.get_freg(rs1);
-                let result = if rs1 > u32::MAX as f32 {
-                    self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
-                    u32::MAX
-                } else if rs1 < 0. {
-                    if rs1 > -1.0 {
-                        self.registers.csr.fcsr.set_flag(ExceptionFlags::INEXACT);
-                    } else {
-                        self.registers.csr.fcsr.set_flag(ExceptionFlags::INVALID);
-                    }
-                    0
-                } else {
-                    let rs1 = F32::from_f32(rs1);
-                    self.prepare_exception_flags();
-                    let result = rs1.to_u32(rm, true);
-                    self.store_exception_flags();
-                    result
-                };
 
+                let rs1 = F32::from_f32(rs1);
+
+                let (result, flags) = rs1.to_u32(rm);
+
+                self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set(rd, result);
 
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
@@ -1302,21 +1270,11 @@ impl<M: BackingStore> State<M> {
                 let rs1 = args.rs1();
 
                 let rs1 = self.registers.get_freg(rs1);
-                let bits = rs1.to_bits();
 
-                let class = match rs1 {
-                    f if f.is_infinite() && f.is_sign_negative() => 1 << 0,
-                    f if f.is_normal() && f.is_sign_negative() => 1 << 1,
-                    f if f.is_subnormal() && f.is_sign_negative() => 1 << 2,
-                    _ if bits == 0x8000_0000 => 1 << 3,
-                    _ if bits == 0x0000_0000 => 1 << 4,
-                    f if f.is_subnormal() && f.is_sign_positive() => 1 << 5,
-                    f if f.is_normal() && f.is_sign_positive() => 1 << 6,
-                    f if f.is_infinite() && f.is_sign_positive() => 1 << 7,
-                    _ if bits & 0x7FC0_0000 == 0x7F80_0000 => 1 << 8,
-                    _ if bits & 0x7FC0_0000 == 0x7FC0_0000 => 1 << 9,
-                    _ => unreachable!(),
-                };
+                let rs1 = F32::from_f32(rs1);
+
+                let class = rs1.class();
+                let class = 1u32 << (class as u32);
 
                 self.registers.set(rd, class);
             }
@@ -1347,8 +1305,6 @@ impl<M: BackingStore> State<M> {
                 let rs1 = self.registers.get_freg(rs1);
 
                 self.registers.set(rd, Word::from_f32(rs1));
-
-                self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Csrrw(args) => {
                 let csr = args.csr();
