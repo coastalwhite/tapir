@@ -143,6 +143,7 @@ csrs! {
     mscratch:  Simple         [ 0x340 = (is_available, read, write) ];
     mepc:      Simple         [ 0x341 = (is_available, read, write) ];
     mcause:    mcause::MCause [ 0x342 = (is_available, read, write) ];
+    mtval:     Simple         [ 0x343 = (is_available, read, write) ];
 
     cycle:     counter::Counter [
         0xC00 = (is_available, low_read, low_write   ),
