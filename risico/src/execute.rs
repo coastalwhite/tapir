@@ -318,6 +318,10 @@ impl<M: BackingStore> State<M> {
         self.registers.csr.mcause.write(trap as u32);
         let addr = self.registers.csr.mtvec.cause_addr(trap).unwrap();
 
+        self.registers_mut().csr.cycle.increment();
+        self.registers_mut().csr.instret.increment();
+        self.registers_mut().csr.time.increment();
+
         self.registers.pc = Addr::from(addr);
     }
 
@@ -1831,6 +1835,10 @@ impl<M: BackingStore> State<M> {
                 self.store_datamem_word(addr, value.to_bits());
             }
         };
+
+        self.registers_mut().csr.cycle.increment();
+        self.registers_mut().csr.instret.increment();
+        self.registers_mut().csr.time.increment();
 
         self.registers.pc = next_pc;
     }

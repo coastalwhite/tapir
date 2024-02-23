@@ -6,6 +6,7 @@ pub mod mdeleg;
 pub mod misa;
 pub mod mstatus;
 pub mod mtvec;
+pub mod counter;
 
 pub enum CsrError {
     UnknownRegister,
@@ -142,6 +143,19 @@ csrs! {
     mscratch:  Simple         [ 0x340 = (is_available, read, write) ];
     mepc:      Simple         [ 0x341 = (is_available, read, write) ];
     mcause:    mcause::MCause [ 0x342 = (is_available, read, write) ];
+
+    cycle:     counter::Counter [
+        0xC00 = (is_available, low_read, low_write   ),
+        0xC80 = (is_available, high_read, high_write ),
+    ];
+    time:      counter::Counter [
+        0xC01 = (is_available, low_read, low_write   ),
+        0xC81 = (is_available, high_read, high_write ),
+    ];
+    instret:   counter::Counter [
+        0xC02 = (is_available, low_read, low_write   ),
+        0xC82 = (is_available, high_read, high_write ),
+    ];
 
     mvendorid: Empty          [ 0xF11 = (is_available, read, write) ];
     marchid:   Empty          [ 0xF12 = (is_available, read, write) ];
