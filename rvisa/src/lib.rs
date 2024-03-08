@@ -97,6 +97,16 @@ impl MIsa {
     }
 
     #[inline]
+    pub const fn without_ext(self, ext: MIsaExt) -> Self {
+        Self(self.0 & !ext.0)
+    }
+
+    #[inline]
+    pub const fn with_ext(self, ext: MIsaExt) -> Self {
+        Self(self.0 | ext.0)
+    }
+
+    #[inline]
     pub const fn contains(self, other: MIsaExt) -> bool {
         self.extensions().contains(other)
     }

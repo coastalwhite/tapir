@@ -1,4 +1,4 @@
-use super::CsrInitContext;
+use super::{CsrInitContext, CsrWriteContext};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Mtvec(u32);
@@ -45,7 +45,7 @@ impl Mtvec {
     }
 
     #[inline]
-    pub fn write(&mut self, value: u32) {
+    pub fn write(&mut self, value: u32, _: &CsrWriteContext) {
         self.0 = value;
     }
 

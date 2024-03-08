@@ -478,6 +478,10 @@ def main():
         log_error(f'error: {failed_runs}/{num_tests} failed...')
         log_error(f'ignored: {num_ignored}/{num_tests}...')
         exit(1)
+    else:
+        eprint()
+        eprint(f'all tests passed ({num_tests}/{num_tests})!')
+        exit(0)
 
 if __name__ == '__main__':
     main()

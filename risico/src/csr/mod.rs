@@ -1,5 +1,7 @@
 use rvhwfuzzer_encoding::CsrIndex;
 
+use crate::repr::Addr;
+
 pub mod fcsr;
 pub mod mcause;
 pub mod mdeleg;
@@ -38,7 +40,7 @@ macro_rules! csrs {
                 }
             }
 
-            pub fn write(&mut self, id: CsrIndex, value: u32) -> Result<u32, CsrError> {
+            pub fn write(&mut self, id: CsrIndex, value: u32, ctx: &CsrWriteContext) -> Result<u32, CsrError> {
                 match id.0 {
                     $( $(
                     $id => {
@@ -47,7 +49,7 @@ macro_rules! csrs {
 
                         $(
                             rv = Ok(self.$field.$read());
-                            self.$field.$write(value);
+                            self.$field.$write(value, ctx);
                         )?
 
                         rv
@@ -57,7 +59,7 @@ macro_rules! csrs {
                 }
             }
 
-            pub fn update(&mut self, id: CsrIndex, f: impl FnOnce(u32) -> u32) -> Result<u32, CsrError> {
+            pub fn update(&mut self, id: CsrIndex, f: impl FnOnce(u32) -> u32, ctx: &CsrWriteContext) -> Result<u32, CsrError> {
                 match id.0 {
                     $( $(
                     $id => {
@@ -67,7 +69,7 @@ macro_rules! csrs {
                         $(
                             let value = self.$field.$read();
                             rv = Ok(value);
-                            self.$field.$write(f(value));
+                            self.$field.$write(f(value), ctx);
                         )?
 
                         rv
@@ -99,7 +101,7 @@ impl Empty {
         0
     }
 
-    fn write(&mut self, _: u32) {}
+    fn write(&mut self, _: u32, _: &CsrWriteContext) {}
 }
 
 impl Simple {
@@ -115,7 +117,7 @@ impl Simple {
         self.0
     }
 
-    pub fn write(&mut self, value: u32) {
+    pub fn write(&mut self, value: u32, _: &CsrWriteContext) {
         self.0 = value;
     }
 }
@@ -144,6 +146,7 @@ csrs! {
     mepc:      Simple         [ 0x341 = (is_available, read, write) ];
     mcause:    mcause::MCause [ 0x342 = (is_available, read, write) ];
     mtval:     Simple         [ 0x343 = (is_available, read, write) ];
+    mip:       Empty          [ 0x344 = (is_available, read, write) ];
 
     cycle:     counter::Counter [
         0xC00 = (is_available, low_read, low_write   ),
@@ -254,6 +257,12 @@ csrs! {
 
 pub struct CsrInitContext {}
 
+pub struct CsrWriteContext {
+    pub pc: Addr,
+}
+
+
+#[derive(Debug)]
 #[repr(u8)]
 pub enum Mode {
     User = 0b00,

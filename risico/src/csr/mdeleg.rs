@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::CsrInitContext;
+use super::{CsrInitContext, CsrWriteContext};
 use super::mtvec::TrapCause;
 
 /// Machine Exception Delegation Register
@@ -57,7 +57,7 @@ impl MEDeleg {
     }
 
     #[inline]
-    pub fn write(&mut self, value: u32) -> u32 {
+    pub fn write(&mut self, value: u32, _: &CsrWriteContext) -> u32 {
         let old = self.value;
         self.value = value & self.readonly_mask;
         old
@@ -80,7 +80,7 @@ impl MIDeleg {
     }
 
     #[inline]
-    pub fn write(&mut self, value: u32) -> u32 {
+    pub fn write(&mut self, value: u32, _: &CsrWriteContext) -> u32 {
         let old = self.0;
         self.0 = value;
         old

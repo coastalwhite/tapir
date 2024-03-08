@@ -1,4 +1,4 @@
-use super::CsrInitContext;
+use super::{CsrInitContext, CsrWriteContext};
 
 #[derive(Debug, Clone)]
 pub struct Counter(u64);
@@ -19,7 +19,7 @@ impl Counter {
     }
 
     #[inline]
-    pub fn low_write(&mut self, value: u32) {
+    pub fn low_write(&mut self, value: u32, _: &CsrWriteContext) {
         self.0 &= 0xFFFF_FFFF_0000_0000;
         self.0 |= u64::from(value);
     }
@@ -30,7 +30,7 @@ impl Counter {
     }
 
     #[inline]
-    pub fn high_write(&mut self, value: u32) {
+    pub fn high_write(&mut self, value: u32, _: &CsrWriteContext) {
         self.0 &= 0xFFFF_FFFF;
         self.0 |= u64::from(value) << 32;
     }

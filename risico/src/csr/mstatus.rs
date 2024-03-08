@@ -1,6 +1,6 @@
 use crate::memory::Endianness;
 
-use super::{CsrInitContext, Mode};
+use super::{CsrInitContext, Mode, CsrWriteContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtStatus {
@@ -37,21 +37,62 @@ impl ExtStatus {
 #[derive(Debug, Clone, Copy)]
 pub struct MStatus(u64);
 
+macro_rules! bitfields {
+    (
+        $(
+            $(#[$($attrss:meta)*])*
+            $mask:ident, $get:ident, $set:ident = $offset:literal
+        ),+ $(,)?
+    ) => {
+        $(
+        $(#[$($attrss)*])*
+        const $mask: u64 = 1 << $offset;
+
+        $(#[$($attrss)*])*
+        pub const fn $get(self) -> bool {
+            self.0 & Self::$mask != 0
+        }
+
+        $(#[$($attrss)*])*
+        pub fn $set(&mut self, value: bool) {
+            self.0 &= !Self::$mask;
+            self.0 |= u64::from(value) << $offset;
+        }
+        )+
+    };
+}
+
 impl MStatus {
+    /// Summarize dirty
     const SD_MASK: u64 = 1 << 31;
-    const MIE_MASK: u64 = 1 << 3;
-    const MPIE_MASK: u64 = 1 << 7;
+
+    /// Machine-mode Previous Privilege mode
     const MPP_MASK: u64 = 3 << 11;
 
     const MBE_MASK: u64 = 1 << (32 + 5);
     const SBE_MASK: u64 = 1 << (32 + 4);
     const UBE_MASK: u64 = 1 << 6;
 
+    const LEAST_SUPPORTED_PRIVILEGE: Mode = Mode::User;
+
+    bitfields! {
+        /// Machine-mode Global Interrupt Enable
+        MIE_MASK, mie, set_mie = 3,
+
+        /// Machine-mode Previous Interrupt Enable
+        MPIE_MASK, mpie, set_mpie =  7,
+        
+        /// Modify Privilege
+        ///
+        /// This modifies the effective privilege mode at which loads and stores execute
+        MPRV_MASK, mprv, set_mprv =  17,
+    }
+
     pub fn mstatush_read(&self) -> u32 {
         (self.0 >> 32) as u32
     }
 
-    pub fn mstatush_write(&mut self, value: u32) {
+    pub fn mstatush_write(&mut self, value: u32, _: &CsrWriteContext) {
         self.0 &= 0x0000_0000_FFFF_FFFF;
         self.0 |= (value as u64) << 32;
     }
@@ -68,9 +109,15 @@ impl MStatus {
         (self.0 & 0xFFFF_FFFF) as u32
     }
 
-    pub fn write(&mut self, value: u32) {
+    pub fn write(&mut self, value: u32, _: &CsrWriteContext) {
+        let mpp = self.mpp();
+
         self.0 &= 0xFFFF_FFFF_0000_0000;
-        self.0 |= value as u64;
+        self.0 |= (value as u64) & !(Self::MIE_MASK);
+        
+        if !matches!(self.mpp(), Mode::Machine | Mode::User) {
+            self.set_mpp(mpp);
+        }
     }
 
     /// Summarize dirty
@@ -110,20 +157,40 @@ impl MStatus {
         ExtStatus::take_masked(((self.0 >> 15) & 0xFF) as u8)
     }
 
-    /// Machine Global Interrupt-Enable
-    pub const fn mie(self) -> bool {
-        self.0 & Self::MIE_MASK != 0
+    pub const fn has_interrupts(self, mode: Mode) -> bool {
+        self.mie() && matches!(mode, Mode::Machine)
     }
 
-    /// Machine Interrupt-Enable prior to Trap
-    pub const fn mpie(self) -> bool {
-        self.0 & Self::MPIE_MASK != 0
+    pub fn trap_to_machine(&mut self, current_mode: Mode) {
+        // RISC-V Specification:
+        //
+        // When a trap is taken from privilege mode y into privilege mode x, xPIE is set to the
+        // value of xIE; xIE is set to 0; and xPP is set to y.
+
+        self.set_mpie(self.mie());
+        self.set_mie(false);
+        self.set_mpp(current_mode);
     }
 
-    /// Set Machine Interrupt-Enable prior to Trap
-    pub fn set_mpie(&mut self, value: bool) {
-        self.0 &= !Self::MPIE_MASK;
-        self.0 |= u64::from(value) << 7;
+    /// Returns from a machine-mode trap, giving the new privilege mode.
+    pub fn return_from_machine_trap(&mut self) -> Mode {
+        // RISC-V Specification:
+        //
+        // When executing an xRET instruction, supposing xPP holds the value y, xIE is set to xPIE;
+        // the privilege mode is changed to y; xPIE is set to 1; and xPP is set to the
+        // least-privileged supported mode (U if U-mode is implemented, else M). If y̸=M, x RET also
+        // sets MPRV=0.
+
+        let previous_privilege = self.mpp();
+        self.set_mie(self.mpie());
+        self.set_mpie(true);
+        self.set_mpp(Self::LEAST_SUPPORTED_PRIVILEGE);
+
+        if !matches!(previous_privilege, Mode::Machine) {
+            self.set_mprv(false);
+        }
+
+        previous_privilege
     }
 
     /// Machine Previous-Privilege Mode

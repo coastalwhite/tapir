@@ -1,4 +1,4 @@
-use super::CsrInitContext;
+use super::{CsrInitContext, CsrWriteContext};
 
 #[derive(Clone, Debug)]
 pub struct Fcsr {
@@ -105,7 +105,8 @@ impl Fcsr {
     }
 
     pub fn set_fflags(&mut self, flags: ExceptionFlags) {
-        self.fflags_write(flags.to_bits().into())
+        self.inner =
+            (self.inner & !Self::FFLAGS_MASK) | ((u32::from(flags.to_bits()) << 0) & Self::FFLAGS_MASK);
     }
 
     pub fn add_fflags(&mut self, flags: impl Into<ExceptionFlags>) {
@@ -119,14 +120,14 @@ impl Fcsr {
     pub fn fflags_read(&self) -> u32 {
         self.inner & Self::FFLAGS_MASK
     }
-    pub fn fflags_write(&mut self, value: u32) {
+    pub fn fflags_write(&mut self, value: u32, _: &CsrWriteContext) {
         self.inner = (self.inner & !Self::FFLAGS_MASK) | ((value << 0) & Self::FFLAGS_MASK);
     }
 
     pub fn frm_read(&self) -> u32 {
         (self.inner & Self::FRM_MASK) >> 5
     }
-    pub fn frm_write(&mut self, value: u32) {
+    pub fn frm_write(&mut self, value: u32, _: &CsrWriteContext) {
         self.inner = (self.inner & !Self::FRM_MASK) | ((value << 5) & Self::FRM_MASK);
     }
 
@@ -146,7 +147,7 @@ impl Fcsr {
     }
 
     #[inline]
-    pub fn write(&mut self, value: u32) {
+    pub fn write(&mut self, value: u32, _: &CsrWriteContext) {
         // bitlen = |frm| + |fflags|
         //        = 3     + 5
         //        = 8

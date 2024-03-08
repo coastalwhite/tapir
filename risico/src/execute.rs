@@ -5,11 +5,12 @@ use std::process::exit;
 
 use rsoftfloat::f32::F32;
 use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
+use rvisa::MIsaExt;
 
 use crate::csr::fcsr::ExceptionFlags;
 use crate::csr::mstatus::ExtStatus;
 use crate::csr::mtvec::TrapCause;
-use crate::csr::{ControlStatusRegisters, Mode};
+use crate::csr::{ControlStatusRegisters, CsrWriteContext, Mode};
 use crate::device_config::Isa;
 use crate::driver::cache::CacheResult;
 use crate::memory::{BackingStore, Endianness, MappedMemory};
@@ -56,6 +57,28 @@ pub struct Registers {
 pub enum PrivilegeLevel {
     Machine,
     User,
+}
+
+impl From<PrivilegeLevel> for Mode {
+    fn from(value: PrivilegeLevel) -> Self {
+        match value {
+            PrivilegeLevel::Machine => Mode::Machine,
+            PrivilegeLevel::User => Mode::User,
+        }
+    }
+}
+
+impl TryFrom<Mode> for PrivilegeLevel {
+    type Error = ();
+
+    fn try_from(value: Mode) -> Result<Self, Self::Error> {
+        match value {
+            Mode::User => Ok(Self::User),
+            Mode::Supervisor => Err(()),
+            Mode::Reserved10 => Err(()),
+            Mode::Machine => Ok(Self::Machine),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -216,6 +239,23 @@ impl<M: BackingStore> State<M> {
         }
     }
 
+    pub fn are_f_ext_instrs_available(&self) -> bool {
+        self.registers()
+            .csr
+            .misa
+            .isa()
+            .contains(MIsaExt::SINGLE_PRECISION_FP)
+            && self.registers().csr.mstatus.fs() != ExtStatus::Off
+    }
+
+    pub fn are_c_ext_instrs_available(&self) -> bool {
+        self.registers()
+            .csr
+            .misa
+            .isa()
+            .contains(MIsaExt::COMPRESSED)
+    }
+
     pub fn execute(mut self) -> Self {
         self.execute_mut();
         self
@@ -293,6 +333,12 @@ impl<M: BackingStore> State<M> {
         self.memory_mut().set_byte(at, value)
     }
 
+    fn csr_write_context(&self) -> CsrWriteContext {
+        CsrWriteContext {
+            pc: self.registers().get_pc().as_addr(),
+        }
+    }
+
     pub fn trigger_trap(&mut self, trap: TrapCause) {
         if self
             .trap_behavior
@@ -314,8 +360,14 @@ impl<M: BackingStore> State<M> {
 
         eprintln!("[PC={:08X}]: Trap triggered {trap:?}", self.pc().as_u32(),);
 
-        self.registers.csr.mepc.write(self.pc().as_u32());
-        self.registers.csr.mcause.write(trap as u32);
+        let ctx = self.csr_write_context();
+
+        self.registers
+            .csr
+            .mstatus
+            .trap_to_machine(self.current_privilege().into());
+        self.registers.csr.mepc.write(self.pc().as_u32(), &ctx);
+        self.registers.csr.mcause.write(trap as u32, &ctx);
         let addr = self.registers.csr.mtvec.cause_addr(trap).unwrap();
 
         self.registers_mut().csr.cycle.increment();
@@ -730,7 +782,7 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, rs1.as_u32() | rs2.as_u32());
             }
             FmaddS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -759,7 +811,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FnmsubS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -788,7 +840,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmsubS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -817,7 +869,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FnmaddS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -846,7 +898,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Fsw(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -865,7 +917,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             Flw(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -884,7 +936,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmulS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -910,7 +962,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FdivS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -936,7 +988,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FaddS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -962,7 +1014,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsubS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -988,7 +1040,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FltS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1010,7 +1062,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FminS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1033,7 +1085,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmaxS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1056,7 +1108,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1073,7 +1125,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjnS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1090,7 +1142,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsgnjxS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1109,7 +1161,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FleS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1132,7 +1184,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FeqS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1155,7 +1207,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtSW(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1176,7 +1228,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtWS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1199,7 +1251,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FsqrtS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1221,7 +1273,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtSWu(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1242,7 +1294,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FcvtWuS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1265,7 +1317,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FclassS(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1283,7 +1335,7 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, class);
             }
             FmvWX(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1298,7 +1350,7 @@ impl<M: BackingStore> State<M> {
                 self.registers_mut().csr.mstatus.mark_fs_dirty();
             }
             FmvXW(args) => {
-                if self.registers().csr.mstatus.fs() == ExtStatus::Off {
+                if !self.are_f_ext_instrs_available() {
                     self.trigger_trap(TrapCause::IllegalInstruction);
                     return;
                 }
@@ -1317,7 +1369,9 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers().get(rs);
 
-                let Ok(value) = self.registers.csr.write(csr, rs.as_u32()) else {
+                let ctx = self.csr_write_context();
+
+                let Ok(value) = self.registers.csr.write(csr, rs.as_u32(), &ctx) else {
                     if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRW] Missing CSR: {csr} (0x{csr:03x}) ");
@@ -1336,8 +1390,10 @@ impl<M: BackingStore> State<M> {
                 let value = if rs == XRegIdent::Zero {
                     self.registers.csr.read(csr)
                 } else {
+                    let ctx = self.csr_write_context();
+
                     let rs = self.registers().get(rs);
-                    self.registers.csr.update(csr, |v| v | rs.as_u32())
+                    self.registers.csr.update(csr, |v| v | rs.as_u32(), &ctx)
                 };
 
                 let Ok(value) = value else {
@@ -1359,8 +1415,10 @@ impl<M: BackingStore> State<M> {
                 let value = if rs == XRegIdent::Zero {
                     self.registers.csr.read(csr)
                 } else {
+                    let ctx = self.csr_write_context();
+
                     let rs = self.registers().get(rs);
-                    self.registers.csr.update(csr, |v| v & !rs.as_u32())
+                    self.registers.csr.update(csr, |v| v & !rs.as_u32(), &ctx)
                 };
 
                 let Ok(value) = value else {
@@ -1379,7 +1437,9 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let Ok(value) = self.registers.csr.write(csr, uimm.into()) else {
+                let ctx = self.csr_write_context();
+
+                let Ok(value) = self.registers.csr.write(csr, uimm.into(), &ctx) else {
                     if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRWI] Missing CSR: {csr} (0x{csr:03x}) ");
@@ -1395,7 +1455,13 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let Ok(value) = self.registers.csr.update(csr, |v| v | u32::from(uimm)) else {
+                let ctx = self.csr_write_context();
+
+                let Ok(value) = self
+                    .registers
+                    .csr
+                    .update(csr, |v| v | u32::from(uimm), &ctx)
+                else {
                     if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRSI] Missing CSR: {csr} (0x{csr:03x}) ");
@@ -1411,7 +1477,13 @@ impl<M: BackingStore> State<M> {
                 let rd = args.rd();
                 let uimm = args.uimm();
 
-                let Ok(value) = self.registers.csr.update(csr, |v| v & !u32::from(uimm)) else {
+                let ctx = self.csr_write_context();
+
+                let Ok(value) = self
+                    .registers
+                    .csr
+                    .update(csr, |v| v & !u32::from(uimm), &ctx)
+                else {
                     if self.trap_behavior.does_abort_on_missing_csr() {
                         let csr = csr.0;
                         eprintln!("[ERROR][CSRRCI] Missing CSR: {csr} (0x{csr:03x}) ");
@@ -1459,6 +1531,18 @@ impl<M: BackingStore> State<M> {
             FenceI(_) => {}
             MRet(_) => {
                 next_pc = Addr::from(self.registers.csr.mepc.read());
+
+                if !self.are_c_ext_instrs_available() {
+                    next_pc = next_pc.word_align();
+                }
+
+                self.privilege = self
+                    .registers
+                    .csr
+                    .mstatus
+                    .return_from_machine_trap()
+                    .try_into()
+                    .unwrap();
             }
             Mul(args) => {
                 let rd = args.rd();
@@ -1581,6 +1665,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, result);
             }
             CAddi4SpN(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd().into();
                 let imm = args.imm();
 
@@ -1590,6 +1679,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, sp);
             }
             CLw(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let offset = i16::from(args.imm());
@@ -1601,6 +1695,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd.into(), value);
             }
             CFlw(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let rs1 = args.rs1();
                 let offset = i16::from(args.imm());
@@ -1612,6 +1711,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd.into(), value.as_f32());
             }
             CSw(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
                 let offset = i16::from(args.imm());
@@ -1623,6 +1727,11 @@ impl<M: BackingStore> State<M> {
                 self.store_datamem_word(addr, rs2.as_u32());
             }
             CFsw(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs1 = args.rs1();
                 let rs2 = args.rs2();
                 let offset = i16::from(args.imm());
@@ -1633,8 +1742,19 @@ impl<M: BackingStore> State<M> {
 
                 self.store_datamem_word(addr, rs2.to_bits());
             }
-            CNop(_) => {}
+            CNop(_) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
+            }
             CAddi(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1();
                 let imm = args.imm();
 
@@ -1644,16 +1764,31 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1);
             }
             CJal(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 self.registers.set(XRegIdent::Ra, self.pc().offset(2));
                 next_pc = self.pc().offset(args.imm());
             }
             CLi(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let imm = args.imm();
 
                 self.registers.set(rd, imm);
             }
             CAddi16Sp(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let imm = args.imm();
 
                 let sp = self.registers.get(XRegIdent::Sp);
@@ -1662,12 +1797,22 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(XRegIdent::Sp, sp);
             }
             CLui(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let imm = args.imm();
 
                 self.registers.set(rd, imm);
             }
             CSrli(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let imm = args.imm();
 
@@ -1677,6 +1822,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, value);
             }
             CSrai(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let imm = args.imm();
 
@@ -1686,6 +1836,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, value);
             }
             CAndi(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let imm = i32::from(args.imm());
 
@@ -1695,6 +1850,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, value);
             }
             CSub(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let rs2 = args.rs2().into();
 
@@ -1704,6 +1864,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1 - rs2);
             }
             CXor(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let rs2 = args.rs2().into();
 
@@ -1713,6 +1878,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1 ^ rs2);
             }
             COr(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let rs2 = args.rs2().into();
 
@@ -1722,6 +1892,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1 | rs2);
             }
             CAnd(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1().into();
                 let rs2 = args.rs2().into();
 
@@ -1731,10 +1906,19 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1 & rs2);
             }
             CJ(args) => {
-                dbg!(args.imm());
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 next_pc = self.pc().offset(args.imm());
             }
             CBeqz(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs1 = args.rs1().into();
 
                 let rs1 = self.registers.get(rs1);
@@ -1744,6 +1928,11 @@ impl<M: BackingStore> State<M> {
                 }
             }
             CBnez(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs1 = args.rs1().into();
 
                 let rs1 = self.registers.get(rs1);
@@ -1753,6 +1942,11 @@ impl<M: BackingStore> State<M> {
                 }
             }
             CSlli(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1();
                 let imm = args.imm();
 
@@ -1762,6 +1956,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, value);
             }
             CLwSp(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let offset = i16::from(args.imm());
 
@@ -1771,6 +1970,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd, value);
             }
             CFlwSp(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let offset = i16::from(args.imm());
 
@@ -1780,11 +1984,21 @@ impl<M: BackingStore> State<M> {
                 self.registers.set_freg(rd, value.as_f32());
             }
             CJr(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs = args.rs1();
                 let rs1 = self.registers.get(rs).as_addr();
                 next_pc = rs1.halfword_align();
             }
             CMv(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd = args.rd();
                 let rs2 = args.rs2();
 
@@ -1793,6 +2007,11 @@ impl<M: BackingStore> State<M> {
             }
             CEBreak(_) => todo!(),
             CJalr(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs = args.rs1();
 
                 let rs1 = self.registers.get(rs).as_addr();
@@ -1800,6 +2019,11 @@ impl<M: BackingStore> State<M> {
                 next_pc = rs1.halfword_align();
             }
             CAdd(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rd_rs1 = args.rd_rs1();
                 let rs2 = args.rs2();
 
@@ -1809,6 +2033,11 @@ impl<M: BackingStore> State<M> {
                 self.registers.set(rd_rs1, rs1 + rs2);
             }
             CSwSp(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs2 = args.rs2();
                 let offset = args.imm();
 
@@ -1822,6 +2051,11 @@ impl<M: BackingStore> State<M> {
                 self.store_datamem_word(addr, value.as_u32());
             }
             CFswSp(args) => {
+                if !self.are_c_ext_instrs_available() {
+                    self.trigger_trap(TrapCause::IllegalInstruction);
+                    return;
+                }
+
                 let rs2 = args.rs2();
                 let offset = args.imm();
 
