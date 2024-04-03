@@ -68,6 +68,17 @@ impl MXLen {
 }
 
 impl MIsa {
+    pub const RV32G: Self = Self::new(
+        MXLen::X32,
+        MIsaExt::RV_I
+            .union(MIsaExt::INTEGER_MULDIV)
+            .union(MIsaExt::ATOMIC)
+            .union(MIsaExt::COMPRESSED)
+            .union(MIsaExt::SINGLE_PRECISION_FP),
+    );
+
+    pub const RV32I: Self = Self::new(MXLen::X32, MIsaExt::RV_I);
+
     #[inline]
     pub const fn new(mxlen: MXLen, exts: MIsaExt) -> Self {
         Self((mxlen as u32) << 30 | exts.0)
@@ -157,6 +168,11 @@ impl MIsaExt {
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
+    }
+
+    #[inline]
+    pub const fn union(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
     }
 
     #[inline]

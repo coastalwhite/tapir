@@ -1,5 +1,5 @@
 macro_rules! define_instruction_class {
-    ($name:ident { $($instr_name:ident($args_name:ident)),+ $(,)? }) => {
+    ($name:ident { $($instr_name:ident($args_name:ident)),+ $(,)?  } $( |$ctx:ident| $is_available:expr )?) => {
         #[derive(Debug)]
         pub enum $name {
             $(
@@ -45,6 +45,11 @@ macro_rules! define_instruction_class {
 
                 (LUT[r])(ctx)
             }
+            $(
+            fn is_available($ctx: &$crate::arbitrary::ArbitraryGenerationContext) -> bool {
+                $is_available
+            }
+            )?
         }
 
     };
@@ -53,4 +58,5 @@ macro_rules! define_instruction_class {
 pub mod nonhopping_branches;
 pub mod fpu32;
 pub mod alu;
+pub mod muldiv;
 pub mod csr;

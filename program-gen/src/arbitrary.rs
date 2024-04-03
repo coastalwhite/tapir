@@ -4,6 +4,7 @@ use rvhwfuzzer_encoding::Instruction;
 use crate::RegisterRecencyList;
 
 mod fpu32;
+mod compressed;
 
 pub enum HopTarget {
     Padded(u32),
@@ -34,6 +35,11 @@ impl ArbitraryGenerationContext {
 }
 
 pub trait ArbitraryInstruction {
+    #[inline(always)]
+    fn is_available(_ctx: &ArbitraryGenerationContext) -> bool {
+        true
+    }
+
     fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction;
 }
 
@@ -111,6 +117,17 @@ impl_regreg_args! {
     Sra,
     Or,
     And,
+}
+
+impl_regreg_args! {
+    Mul,
+    MulH,
+    MulHsu,
+    MulHu,
+    Div,
+    DivU,
+    Rem,
+    RemU,
 }
 
 impl_regimm_args! {

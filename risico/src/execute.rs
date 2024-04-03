@@ -5,7 +5,7 @@ use std::process::exit;
 
 use rsoftfloat::f32::F32;
 use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
-use rvisa::MIsaExt;
+use rvisa::{MIsaExt, MIsa};
 
 use crate::csr::fcsr::ExceptionFlags;
 use crate::csr::mstatus::ExtStatus;
@@ -89,7 +89,7 @@ pub struct StateECallBehavior {
 
 #[derive(Clone)]
 pub struct State<M: BackingStore> {
-    isa: Isa,
+    isa: rvisa::MIsa,
     privilege: PrivilegeLevel,
     trap_behavior: TrapBehavior,
     ecall_behavior: StateECallBehavior,
@@ -185,7 +185,7 @@ impl<M: BackingStore> Debug for State<M> {
 
 impl<M: BackingStore> State<M> {
     pub fn new(
-        isa: Isa,
+        isa: MIsa,
         ecall_behavior: StateECallBehavior,
         trap_behavior: TrapBehavior,
         entry: u32,
@@ -196,7 +196,9 @@ impl<M: BackingStore> State<M> {
             pc: entry.into(),
             xregs: [0.into(); 31],
             fregs: [0.; 32],
-            csr: ControlStatusRegisters::new(&crate::csr::CsrInitContext {}),
+            csr: ControlStatusRegisters::new(&crate::csr::CsrInitContext {
+                isa,
+            }),
         };
 
         State {
@@ -618,13 +620,6 @@ impl<M: BackingStore> State<M> {
 
                 let rs = self.registers.get(rs);
 
-                eprintln!(
-                    "{} = 0x{:08x}, 0x{:03x}",
-                    u32::from(rs.as_u32() < args.imm().into()),
-                    rs.as_u32(),
-                    u32::from(args.imm())
-                );
-
                 self.registers
                     .set(rd, u32::from(rs.as_u32() < args.imm().into()));
             }
@@ -803,7 +798,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                let (mut result, flags) = F32::fmadd(rs1, rs2, rs3, rm);
+                let (result, flags) = F32::fmadd(rs1, rs2, rs3, rm);
 
                 self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set_freg(rd, result.to_f32());
@@ -832,7 +827,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                let (mut result, flags) = F32::fnmsub(rs1, rs2, rs3, rm);
+                let (result, flags) = F32::fnmsub(rs1, rs2, rs3, rm);
 
                 self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set_freg(rd, result.to_f32());
@@ -861,7 +856,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                let (mut result, flags) = F32::fmsub(rs1, rs2, rs3, rm);
+                let (result, flags) = F32::fmsub(rs1, rs2, rs3, rm);
 
                 self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set_freg(rd, result.to_f32());
@@ -890,7 +885,7 @@ impl<M: BackingStore> State<M> {
                 let rs2 = F32::from_f32(rs2);
                 let rs3 = F32::from_f32(rs3);
 
-                let (mut result, flags) = F32::fnmadd(rs1, rs2, rs3, rm);
+                let (result, flags) = F32::fnmadd(rs1, rs2, rs3, rm);
 
                 self.registers_mut().csr.fcsr.add_fflags(flags);
                 self.registers.set_freg(rd, result.to_f32());
@@ -1674,7 +1669,7 @@ impl<M: BackingStore> State<M> {
                 let imm = args.imm();
 
                 let sp = self.registers.get(XRegIdent::Sp);
-                let sp = sp.as_u32() + imm;
+                let sp = sp.as_u32().wrapping_add(imm);
 
                 self.registers.set(rd, sp);
             }
@@ -1759,7 +1754,7 @@ impl<M: BackingStore> State<M> {
                 let imm = args.imm();
 
                 let rs1 = self.registers().get(rd_rs1);
-                let rs1 = rs1.as_i32() + i32::from(imm);
+                let rs1 = rs1.as_i32().wrapping_add(i32::from(imm));
 
                 self.registers.set(rd_rs1, rs1);
             }
@@ -1792,7 +1787,7 @@ impl<M: BackingStore> State<M> {
                 let imm = args.imm();
 
                 let sp = self.registers.get(XRegIdent::Sp);
-                let sp = sp.as_i32() + i32::from(imm);
+                let sp = sp.as_i32().wrapping_add(i32::from(imm));
 
                 self.registers.set(XRegIdent::Sp, sp);
             }

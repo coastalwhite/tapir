@@ -8,8 +8,8 @@ use super::{CsrInitContext, CsrWriteContext};
 pub struct MIsa(rvisa::MIsa);
 
 impl MIsa {
-    pub fn new(_: &CsrInitContext) -> Self {
-        Self(rvisa::MIsa::from_str("rv32imcf").unwrap())
+    pub fn new(ctx: &CsrInitContext) -> Self {
+        Self(ctx.isa)
     }
 
     pub fn read(&self) -> u32 {

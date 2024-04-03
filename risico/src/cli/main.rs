@@ -14,6 +14,7 @@ use object::ObjectSection;
 use object::ObjectSymbol;
 use object::SectionFlags;
 use risico::repr::Addr;
+use rvisa::MIsa;
 
 use crate::cli::{CliFlags, RunType};
 
@@ -133,7 +134,7 @@ fn main() {
             }
 
             let mut state = State::new(
-                Isa::Rv32I,
+                MIsa::RV32G,
                 cli.ecall_behavior(),
                 cli.trap_behavior(),
                 entry,
@@ -210,7 +211,7 @@ fn main() {
             });
 
             let runtime_parameters = RuntimeParameters::new(
-                Isa::Rv32I,
+                MIsa::RV32G,
                 cli.ecall_behavior(),
                 cli.trap_behavior(),
                 0x0,

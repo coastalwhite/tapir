@@ -1,6 +1,8 @@
 use std::io::{self, Write};
 use std::path::Path;
 
+use rvisa::MIsa;
+
 use crate::device_config::Isa;
 use crate::execute::StateECallBehavior;
 use crate::memory::{BackingStore, MappedMemory};
@@ -65,7 +67,7 @@ impl RawImage {
         let mut memory = MappedMemory::full();
         memory.write_to(Addr::default(), &self.buffer);
         // @TODO: HTIF
-        let mut state = State::new(Isa::Rv32I, ecall_behavior, trap_behavior, entry, memory, None);
+        let mut state = State::new(MIsa::RV32G, ecall_behavior, trap_behavior, entry, memory, None);
 
         loop {
             state.execute_mut();

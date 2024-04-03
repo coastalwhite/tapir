@@ -255,7 +255,9 @@ csrs! {
     pmpaddr63: Empty          [ 0x3EF = (is_available, read, write) ];
 }
 
-pub struct CsrInitContext {}
+pub struct CsrInitContext {
+    pub isa: rvisa::MIsa,
+}
 
 pub struct CsrWriteContext {
     pub pc: Addr,

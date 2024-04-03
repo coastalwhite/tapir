@@ -1,5 +1,5 @@
 // mod decode;
-mod csr;
+pub mod csr;
 mod execute;
 pub mod repr;
 
@@ -17,6 +17,7 @@ pub mod trap;
 
 // pub use decode::Instruction;
 pub use execute::{State, StateECallBehavior};
+use rvisa::MIsa;
 
 use self::device_config::{Isa, Section};
 use self::memory::MappedMemory;
@@ -25,7 +26,7 @@ use self::syscall::ECallBehavior;
 use self::trap::TrapBehavior;
 
 pub struct RuntimeParameters {
-    isa: Isa,
+    isa: MIsa,
     ecall_behavior: StateECallBehavior,
     trap_behavior: TrapBehavior,
     entry: u32,
@@ -34,7 +35,7 @@ pub struct RuntimeParameters {
 
 impl RuntimeParameters {
     pub fn new(
-        isa: Isa,
+        isa: MIsa,
         ecall_behavior: StateECallBehavior,
         trap_behavior: TrapBehavior,
         entry: u32,

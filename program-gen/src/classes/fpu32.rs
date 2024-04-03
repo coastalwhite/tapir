@@ -25,4 +25,6 @@ define_instruction_class! {
         FcvtSWu(FcvtSWu),
         FmvWX(FmvWX),
     }
+
+    |ctx| ctx.state().are_f_ext_instrs_available()
 }

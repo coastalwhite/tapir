@@ -6,9 +6,12 @@ mod classes;
 use std::io;
 
 use risico::memory::PlacedBytes;
-use rvhwfuzzer_encoding::{FRegIdent, Instruction, RoundingMode, XRegIdent};
+use rvhwfuzzer_encoding::{FRegIdent, Instruction, RoundingMode, XRegIdent, CXRegIdent};
+use rvisa::{MIsa, MXLen, MIsaExt};
 
 use crate::arbitrary::ArbitraryGenerationContext;
+use crate::classes::alu::CAluInstruction;
+use crate::classes::muldiv::MulDivInstruction;
 
 use self::arbitrary::{ArbitraryInstruction, HopTarget};
 use self::classes::alu::AluInstruction;
@@ -66,6 +69,14 @@ impl RegisterRecencyList {
         self.entropy.take(bitsize)
     }
 
+    fn take_signed_immediate(&mut self, bitsize: u32) -> i64 {
+        let imm = self.take_immediate(bitsize);
+
+        // Sign-Extend
+        let shift = 64 - bitsize;
+        (imm << shift) as i64 >> shift
+    }
+
     fn take_u8(&mut self, bitsize: u32) -> u8 {
         debug_assert!(bitsize <= 8);
         self.take_immediate(bitsize) as u8
@@ -79,6 +90,19 @@ impl RegisterRecencyList {
         self.take_immediate(bitsize) as u32
     }
 
+    fn take_i8(&mut self, bitsize: u32) -> i8 {
+        debug_assert!(bitsize <= 8);
+        (self.take_signed_immediate(bitsize) & 0xFF) as i8
+    }
+    fn take_i16(&mut self, bitsize: u32) -> i16 {
+        debug_assert!(bitsize <= 16);
+        (self.take_signed_immediate(bitsize) & 0xFFFF) as i16
+    }
+    fn take_i32(&mut self, bitsize: u32) -> i32 {
+        debug_assert!(bitsize <= 32);
+        (self.take_signed_immediate(bitsize) & 0xFFFF_FFFF) as i32
+    }
+
     pub fn new() -> Self {
         // @Hack. This should probably be more random.
         Self {
@@ -86,6 +110,14 @@ impl RegisterRecencyList {
             inner: std::array::from_fn(|i| XRegIdent::take_masked((i + 1) as u32)),
             fpu: std::array::from_fn(|i| FRegIdent::take_masked(i as u32)),
         }
+    }
+
+    pub fn take_compressed_register_src(&mut self) -> CXRegIdent {
+        // This is quite hacky, but it works fine
+        
+        let reg = self.take_register_src();
+        let reg = reg as u32;
+        CXRegIdent::take_masked(reg & 0x7)
     }
 
     pub fn take_register_src(&mut self) -> XRegIdent {
@@ -144,6 +176,23 @@ impl RegisterRecencyList {
         }
     }
 
+    pub fn take_compressed_register_dest(&mut self) -> CXRegIdent {
+        // @Hack. This should not be hard coded
+        let value = self.entropy.take_u32(3);
+        let register = CXRegIdent::take_masked(value);
+
+        let mut prev = XRegIdent::from(register);
+        for recent_register in self.inner.iter_mut() {
+            std::mem::swap(recent_register, &mut prev);
+
+            if prev == XRegIdent::from(register) {
+                break;
+            }
+        }
+
+        register
+    }
+
     pub fn take_register_dest(&mut self) -> XRegIdent {
         // @Hack. This should not be hard coded
         let value = self.entropy.take_u32(5);
@@ -183,50 +232,6 @@ impl RegisterRecencyList {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-enum HopClass {
-    Jump,
-    Branch,
-    FPU32,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum StillClass {
-    // RegFSM,
-    // FPUFSM,
-    Alu,
-
-    // @Temporary
-    Branch,
-    // ALU64,
-    // MulDiv,
-    // MulDiv64,
-    // AMO,
-    // AMO64,
-    // Jal,
-    // Jalr,
-    // Branch,
-    // Mem,
-    // Mem64,
-    // MemFPU,
-    FPU32,
-    // FPU64,
-    // MemFPUD,
-    // FPUD,
-    // FPUD64,
-    // TVECFSM,
-    // PPFSM,
-    // EPCFSM,
-    // Medeleg,
-    // Exception,
-    // RandomCSR,
-    // DescendPrivilege,
-    // Special,
-    ReadCsr,
-    WriteCsr,
-    WriteCsrImmediate,
-}
-
 #[rustfmt::skip]
 enum ExceptionCauseValue {
     InstructionAddrMisaligned =  0,
@@ -256,17 +261,23 @@ impl RegisterRecencyList {}
 macro_rules! weighted_random {
     (
         [$ctx:ident]
-        $($weight:literal => $struct:ident),+ $(,)?
+        $($weight:literal => $struct:ident,)+
+        $fallback:ident $(,)?
     ) => {
-        const MAX_WEIGHT: u32 = 0 $(+ $weight)+;
-
-        let mut offset = 0;
-        let r = fastrand::u32(..MAX_WEIGHT);
+        const MAX_WEIGHT: i32 = 0 $(+ $weight)+;
+        
+        let mut offset = 0i32;
+        let mut r = fastrand::i32(0..MAX_WEIGHT);
 
         $(
-        offset += $weight;
-        if r < offset {
-            return $struct::take($ctx);
+        if $struct::is_available($ctx) {
+            offset += $weight;
+            if r < offset {
+                return $struct::take($ctx);
+            }
+        } else {
+            #[allow(unused_assignments)]
+            { r -= $weight; }
         }
         )+
 
@@ -317,18 +328,22 @@ fn instantiate_hop_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruct
         [ctx]
         8 => Jump,
         8 => HoppingBranch,
+        Jump,
     }
 }
 
 fn instantiate_still_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruction {
     weighted_random! {
         [ctx]
-        8 => AluInstruction,
-        8 => FPU32Instruction,
-        8 => CsrRead,
-        4 => CsrWrite,
-        3 => CsrImmWrite,
-        1 => NonHoppingBranch,
+        32 => AluInstruction,
+        32 => CAluInstruction,
+        8  => MulDivInstruction,
+        8  => FPU32Instruction,
+        8  => CsrRead,
+        4  => CsrWrite,
+        3  => CsrImmWrite,
+        1  => NonHoppingBranch,
+        AluInstruction
     }
 }
 
@@ -350,10 +365,15 @@ pub fn generate_binary(entry: u32) -> io::Result<Box<[u8]>> {
     let recency_list = RegisterRecencyList::new();
 
     let state = risico::State::new(
-        risico::device_config::Isa::Rv32I,
-        risico::syscall::SystemCallBehavior::Abort,
+        MIsa::RV32I.with_ext(MIsaExt::INTEGER_MULDIV | MIsaExt::COMPRESSED | MIsaExt::SINGLE_PRECISION_FP),
+        risico::StateECallBehavior {
+            machine: risico::syscall::ECallBehavior::TrapVector,
+            user: risico::syscall::ECallBehavior::TrapVector,
+        },
+        risico::trap::TrapBehavior::empty(),
         entry,
         PlacedBytes::new(entry, Vec::new()),
+        None,
     );
 
     let mut ctx = ArbitraryGenerationContext {
@@ -367,7 +387,7 @@ pub fn generate_binary(entry: u32) -> io::Result<Box<[u8]>> {
         let r = XRegIdent::take_masked(i as u32);
 
         let lui = rvhwfuzzer_encoding::Lui::new(r, value);
-        let addi = rvhwfuzzer_encoding::Addi::new(r, r, (((value & 0xFFF) << 4) as i16) >> 4);
+        let addi = rvhwfuzzer_encoding::Addi::new(r, r, (((value & 0xFFF) << 4) as i32) >> 4);
 
         add_instruction(&mut ctx, lui.into())?;
         add_instruction(&mut ctx, addi.into())?;
