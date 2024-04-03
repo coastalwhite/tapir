@@ -828,8 +828,6 @@ macro_rules! instructions {
         fn decode() {
             use tests::TestArbitrary;
 
-            eprintln!("CBnez::MASK   = 0x{:08x}", CBnez::MASK);
-            eprintln!("CBnez::ENABLE = 0x{:08x}", CBnez::ENABLE);
             $(
             let instance = $name::new($(<field_type!($method_ident$(: $method_extra)?)>::test_arbitrary()),*);
             let encoded = instance.encode_as_u32();
