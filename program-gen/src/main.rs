@@ -9,7 +9,7 @@ fn main() -> std::io::Result<()> {
     let mut num_instructions = 0u64;
 
     for i in 0..100000 {
-        let binary = generate_binary(0x8000_0000)?;
+        let binary = generate_binary(0x8000_0000, &[])?;
 
         // for (i, b) in binary.iter().enumerate() {
         //     if i != 0 && i % 8 == 0 {
@@ -25,7 +25,7 @@ fn main() -> std::io::Result<()> {
         //
         // writeln!(stdout)?;
 
-        num_instructions += (binary.len() / 4) as u64;
+        num_instructions += (binary.bin.len().as_usize() / 4) as u64;
 
         // writeln!(stdout, "Bytes: {}", binary.len())?;
         // writeln!(stdout, "Instructions: ~{}", binary.len() / 4)?;

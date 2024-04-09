@@ -1,7 +1,7 @@
-use risico::memory::PlacedBytes;
 use rvhwfuzzer_encoding::Instruction;
 
 use crate::RegisterRecencyList;
+use crate::backing_store::ProgramMemory;
 
 mod fpu32;
 mod compressed;
@@ -12,17 +12,21 @@ pub enum HopTarget {
 
 pub struct ArbitraryGenerationContext {
     pub hop_target: HopTarget,
-    pub state: risico::State<PlacedBytes>,
+    pub state: risico::State<ProgramMemory>,
     pub parameter_provider: RegisterRecencyList,
 }
 
 impl ArbitraryGenerationContext {
-    pub fn state(&self) -> &risico::State<PlacedBytes> {
+    pub fn state(&self) -> &risico::State<ProgramMemory> {
         &self.state
     }
 
-    pub fn state_mut(&mut self) -> &mut risico::State<PlacedBytes> {
+    pub fn state_mut(&mut self) -> &mut risico::State<ProgramMemory> {
         &mut self.state
+    }
+
+    pub fn take_state(self) -> risico::State<ProgramMemory> {
+        self.state
     }
 
     pub fn params(&self) -> &RegisterRecencyList {

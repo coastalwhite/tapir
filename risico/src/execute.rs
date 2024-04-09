@@ -2080,6 +2080,10 @@ impl<M: BackingStore> State<M> {
         &mut self.memory
     }
 
+    pub fn take_memory(self) -> M {
+        self.memory
+    }
+
     pub fn registers(&self) -> &Registers {
         &self.registers
     }

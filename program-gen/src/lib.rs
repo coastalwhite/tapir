@@ -3,17 +3,20 @@ mod randombits;
 
 mod classes;
 
+mod backing_store;
+
 use std::io;
 
-use risico::memory::PlacedBytes;
-use rvhwfuzzer_encoding::{FRegIdent, Instruction, RoundingMode, XRegIdent, CXRegIdent};
-use rvisa::{MIsa, MXLen, MIsaExt};
+use risico::repr::{Addr, Size};
+use rvhwfuzzer_encoding::{CXRegIdent, FRegIdent, Instruction, RoundingMode, XRegIdent};
+use rvisa::{MIsa, MIsaExt};
 
 use crate::arbitrary::ArbitraryGenerationContext;
 use crate::classes::alu::CAluInstruction;
 use crate::classes::muldiv::MulDivInstruction;
 
 use self::arbitrary::{ArbitraryInstruction, HopTarget};
+use self::backing_store::ProgramMemory;
 use self::classes::alu::AluInstruction;
 use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
 use self::classes::fpu32::FPU32Instruction;
@@ -114,7 +117,7 @@ impl RegisterRecencyList {
 
     pub fn take_compressed_register_src(&mut self) -> CXRegIdent {
         // This is quite hacky, but it works fine
-        
+
         let reg = self.take_register_src();
         let reg = reg as u32;
         CXRegIdent::take_masked(reg & 0x7)
@@ -265,7 +268,7 @@ macro_rules! weighted_random {
         $fallback:ident $(,)?
     ) => {
         const MAX_WEIGHT: i32 = 0 $(+ $weight)+;
-        
+
         let mut offset = 0i32;
         let mut r = fastrand::i32(0..MAX_WEIGHT);
 
@@ -351,28 +354,148 @@ fn add_instruction(
     ctx: &mut ArbitraryGenerationContext,
     instruction: Instruction,
 ) -> io::Result<()> {
-    debug_assert_eq!(ctx.state().pc(), ctx.state().memory().end());
+    debug_assert_eq!(ctx.state().pc(), ctx.state().memory().bin.end());
 
     // eprintln!("{instruction}");
 
-    instruction.encode(ctx.state_mut().memory_mut().bytes_mut())?;
+    instruction.encode(&mut ctx.state_mut().memory_mut().bin.bytes)?;
     ctx.state_mut().instruction_execute(instruction);
 
     Ok(())
 }
 
-pub fn generate_binary(entry: u32) -> io::Result<Box<[u8]>> {
+pub struct MemoryArea {
+    start: Addr,
+    bytes: Vec<u8>,
+}
+
+pub struct Program {
+    pub bin: MemoryArea,
+    pub memory_areas: Box<[MemoryArea]>,
+    pub entry: u32,
+}
+
+impl MemoryArea {
+    #[inline]
+    pub fn contains_addr(&self, addr: Addr) -> bool {
+        // @Hack: Should this really be an `as u32`??
+        addr > self.start && addr.as_u32() - self.start.as_u32() < self.bytes.len() as u32
+    }
+
+    #[inline]
+    pub fn start(&self) -> Addr {
+        self.start
+    }
+
+    #[inline]
+    pub fn end(&self) -> Addr {
+        // @Hack: Should this really be an `as u32`??
+        Addr::from(self.start.as_u32() + (self.bytes.len() as u32))
+    }
+
+    #[inline]
+    pub fn len(&self) -> Size {
+        // @Hack: This should not unwrap
+        Size::from_usize(self.bytes.len()).unwrap()
+    }
+
+    #[inline]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+pub fn generate_memory_areas(viable_memory_ranges: &[std::ops::Range<u32>]) -> Box<[MemoryArea]> {
+    const DESIRED_MEMORY_AREAS: usize = 8;
+    const MIN_MEMORY_AREA_BYTES: u32 = 8;
+    const MAX_MEMORY_AREA_BYTES: u32 = 1024;
+
+    if viable_memory_ranges.is_empty() {
+        return Box::new([]);
+    }
+
+    let mut memory_areas = Vec::with_capacity(DESIRED_MEMORY_AREAS);
+
+    // We start at a random viable memory range, so that different parts of the memory will be
+    // used.
+    let mut current_viable_idx = fastrand::usize(0..viable_memory_ranges.len());
+    let mut current_viable_offset = viable_memory_ranges[current_viable_idx].start;
+
+    // We keep track of the number of regions we traverse so that we know when we have exhausted
+    // all of them.
+    let mut num_traversed_viable_ranges = 0usize;
+
+    while memory_areas.len() != DESIRED_MEMORY_AREAS {
+        let current_viable = &viable_memory_ranges[current_viable_idx];
+
+        debug_assert!(current_viable_offset >= current_viable.start);
+        debug_assert!(current_viable_offset < current_viable.end);
+
+        let viable_leftover = current_viable.end - current_viable_offset;
+
+        // If we don't have enough bytes leftover in the current memory area, move to the next one.
+        if viable_leftover < MIN_MEMORY_AREA_BYTES {
+            num_traversed_viable_ranges += 1;
+            current_viable_idx += 1;
+            current_viable_idx %= viable_memory_ranges.len();
+
+            // We don't have any regions left, break the loop.
+            if num_traversed_viable_ranges >= viable_memory_ranges.len() {
+                break;
+            }
+
+            current_viable_offset = viable_memory_ranges[current_viable_idx].start;
+            continue;
+        }
+
+        // We can only skip as many bytes as would be fine to still generate an area in this viable
+        // range.
+        let max_skip_bytes = viable_leftover - MIN_MEMORY_AREA_BYTES;
+        let skip_bytes = fastrand::u32(0..=max_skip_bytes);
+
+        let area_start = current_viable_offset + skip_bytes;
+        let max_length = u32::min(viable_leftover - skip_bytes, MAX_MEMORY_AREA_BYTES);
+        let area_length = fastrand::u32(MIN_MEMORY_AREA_BYTES..max_length);
+
+        let mut bytes = vec![0; area_length as usize];
+        fastrand::Rng::new().fill(&mut bytes);
+
+        memory_areas.push(MemoryArea {
+            start: Addr::from(area_start),
+            bytes,
+        });
+
+        current_viable_offset = area_start + area_length;
+    }
+
+    memory_areas.into_boxed_slice()
+}
+
+pub fn generate_binary(
+    entry: u32,
+    viable_memory_ranges: &[std::ops::Range<u32>],
+) -> io::Result<Program> {
+    let memory_areas = generate_memory_areas(viable_memory_ranges);
     let recency_list = RegisterRecencyList::new();
 
+    let memory = ProgramMemory {
+        bin: MemoryArea {
+            start: Addr::from(entry),
+            bytes: Vec::new(),
+        },
+        memory_areas,
+    };
+
     let state = risico::State::new(
-        MIsa::RV32I.with_ext(MIsaExt::INTEGER_MULDIV | MIsaExt::COMPRESSED | MIsaExt::SINGLE_PRECISION_FP),
+        MIsa::RV32I
+            .with_ext(MIsaExt::INTEGER_MULDIV | MIsaExt::COMPRESSED | MIsaExt::SINGLE_PRECISION_FP),
         risico::StateECallBehavior {
             machine: risico::syscall::ECallBehavior::TrapVector,
             user: risico::syscall::ECallBehavior::TrapVector,
         },
         risico::trap::TrapBehavior::empty(),
         entry,
-        PlacedBytes::new(entry, Vec::new()),
+        memory,
         None,
     );
 
@@ -410,39 +533,44 @@ pub fn generate_binary(entry: u32) -> io::Result<Box<[u8]>> {
             HopTarget::Padded(padding) => {
                 ctx.state_mut()
                     .memory_mut()
-                    .bytes_mut()
+                    .bin
+                    .bytes
                     .extend(std::iter::repeat(0).take(padding as usize));
             }
         }
     }
 
-    let binary = std::mem::take(ctx.state_mut().memory_mut().bytes_mut());
+    let ProgramMemory { bin, memory_areas } = ctx.take_state().take_memory();
 
-    Ok(binary.into_boxed_slice())
+    Ok(Program {
+        bin,
+        memory_areas,
+        entry,
+    })
 }
 
-#[no_mangle]
-pub extern "C" fn rv_generate_instructions(entry: u32, length: *mut u32) -> *mut u8 {
-    let binary =
-        ::std::panic::catch_unwind(|| generate_binary(entry).unwrap()).unwrap_or_else(|err| {
-            eprintln!("Panic occurred: {err:?}");
-            ::std::process::exit(1);
-        });
-
-    if let Some(length) = unsafe { length.as_mut() } {
-        *length = binary.len() as u32;
-    }
-
-    Box::leak(binary).as_mut_ptr().cast()
-}
-
-#[no_mangle]
-pub extern "C" fn rv_free_instructions(ptr: *mut u8, length: u32) {
-    unsafe {
-        let slice = std::slice::from_raw_parts_mut(ptr, length as usize);
-        let _: Box<[u8]> = <Box<[u8]>>::from_raw(slice);
-    }
-}
+// #[no_mangle]
+// pub extern "C" fn rv_generate_instructions(entry: u32, length: *mut u32) -> *mut u8 {
+//     let binary =
+//         ::std::panic::catch_unwind(|| generate_binary(entry).unwrap()).unwrap_or_else(|err| {
+//             eprintln!("Panic occurred: {err:?}");
+//             ::std::process::exit(1);
+//         });
+//
+//     if let Some(length) = unsafe { length.as_mut() } {
+//         *length = binary.len() as u32;
+//     }
+//
+//     Box::leak(binary).as_mut_ptr().cast()
+// }
+//
+// #[no_mangle]
+// pub extern "C" fn rv_free_instructions(ptr: *mut u8, length: u32) {
+//     unsafe {
+//         let slice = std::slice::from_raw_parts_mut(ptr, length as usize);
+//         let _: Box<[u8]> = <Box<[u8]>>::from_raw(slice);
+//     }
+// }
 
 #[test]
 fn show_concrete() -> std::io::Result<()> {
@@ -455,7 +583,7 @@ fn show_concrete() -> std::io::Result<()> {
 
     // for i in 0..100 {
 
-    let binary = generate_binary(0)?;
+    let binary = generate_binary(0, &[])?;
 
     // for i in (0..binary.len()).step_by(4) {
     //     if &binary[i..i+4] == &[0,0,0,0] {
@@ -479,11 +607,11 @@ fn show_concrete() -> std::io::Result<()> {
     //
     // writeln!(stdout)?;
     //
-    std::fs::write("test.bin", &binary)?;
+    std::fs::write("test.bin", &binary.bin.bytes)?;
     //
     // writeln!(stdout)?;
 
-    num_instructions += (binary.len() / 4) as u64;
+    num_instructions += (binary.bin.len().as_usize() / 4) as u64;
 
     // writeln!(stdout, "Bytes: {}", binary.len())?;
     // writeln!(stdout, "Instructions: ~{}", binary.len() / 4)?;
