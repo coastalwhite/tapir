@@ -81,8 +81,10 @@ impl ProgramMemory {
             return Some(&self.bin);
         }
 
+        println!("addr: 0x{addr}");
+
         for area in self.memory_areas.iter() {
-            if self.bin.contains_addr(addr) {
+            if area.contains_addr(addr) {
                 return Some(area);
             }
         }
@@ -95,8 +97,10 @@ impl ProgramMemory {
             return Some(&mut self.bin);
         }
 
+        println!("addr: 0x{addr}");
+
         for area in self.memory_areas.iter_mut() {
-            if self.bin.contains_addr(addr) {
+            if area.contains_addr(addr) {
                 return Some(area);
             }
         }

@@ -13,6 +13,7 @@ use rvisa::{MIsa, MIsaExt};
 
 use crate::arbitrary::ArbitraryGenerationContext;
 use crate::classes::alu::CAluInstruction;
+use crate::classes::memory::MemoryInstruction;
 use crate::classes::muldiv::MulDivInstruction;
 
 use self::arbitrary::{ArbitraryInstruction, HopTarget};
@@ -270,22 +271,19 @@ macro_rules! weighted_random {
         const MAX_WEIGHT: i32 = 0 $(+ $weight)+;
 
         let mut offset = 0i32;
-        let mut r = fastrand::i32(0..MAX_WEIGHT);
+        let r = fastrand::i32(0..MAX_WEIGHT);
 
         $(
-        if $struct::is_available($ctx) {
-            offset += $weight;
-            if r < offset {
-                return $struct::take($ctx);
+        if r < offset {
+            if let Some(instr) = <$struct as arbitrary::ArbitraryContextualInstruction>::try_take($ctx) {
+                return instr;
             }
-        } else {
-            #[allow(unused_assignments)]
-            { r -= $weight; }
         }
+        #[allow(unused_assignments)]
+        { offset += $weight; }
         )+
 
-        unreachable!();
-
+        <$fallback as arbitrary::ArbitraryInstruction>::take($ctx)
     };
 }
 
@@ -338,7 +336,8 @@ fn instantiate_hop_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruct
 fn instantiate_still_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruction {
     weighted_random! {
         [ctx]
-        32 => AluInstruction,
+        64 => AluInstruction,
+        32 => MemoryInstruction,
         32 => CAluInstruction,
         8  => MulDivInstruction,
         8  => FPU32Instruction,
@@ -356,8 +355,6 @@ fn add_instruction(
 ) -> io::Result<()> {
     debug_assert_eq!(ctx.state().pc(), ctx.state().memory().bin.end());
 
-    // eprintln!("{instruction}");
-
     instruction.encode(&mut ctx.state_mut().memory_mut().bin.bytes)?;
     ctx.state_mut().instruction_execute(instruction);
 
@@ -365,8 +362,8 @@ fn add_instruction(
 }
 
 pub struct MemoryArea {
-    start: Addr,
-    bytes: Vec<u8>,
+    pub start: Addr,
+    pub bytes: Vec<u8>,
 }
 
 pub struct Program {
@@ -403,6 +400,11 @@ impl MemoryArea {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
+
+    #[inline]
+    pub fn range(&self) -> std::ops::Range<u32> {
+        self.start().as_u32()..self.end().as_u32()
+    }
 }
 
 pub fn generate_memory_areas(viable_memory_ranges: &[std::ops::Range<u32>]) -> Box<[MemoryArea]> {
@@ -429,7 +431,7 @@ pub fn generate_memory_areas(viable_memory_ranges: &[std::ops::Range<u32>]) -> B
         let current_viable = &viable_memory_ranges[current_viable_idx];
 
         debug_assert!(current_viable_offset >= current_viable.start);
-        debug_assert!(current_viable_offset < current_viable.end);
+        debug_assert!(current_viable_offset <= current_viable.end);
 
         let viable_leftover = current_viable.end - current_viable_offset;
 
@@ -455,7 +457,7 @@ pub fn generate_memory_areas(viable_memory_ranges: &[std::ops::Range<u32>]) -> B
 
         let area_start = current_viable_offset + skip_bytes;
         let max_length = u32::min(viable_leftover - skip_bytes, MAX_MEMORY_AREA_BYTES);
-        let area_length = fastrand::u32(MIN_MEMORY_AREA_BYTES..max_length);
+        let area_length = fastrand::u32(MIN_MEMORY_AREA_BYTES..=max_length);
 
         let mut bytes = vec![0; area_length as usize];
         fastrand::Rng::new().fill(&mut bytes);
@@ -503,6 +505,7 @@ pub fn generate_binary(
         hop_target: HopTarget::Padded(0),
         state,
         parameter_provider: recency_list,
+        memory_register_cache: None,
     };
 
     for i in 1..NUM_REGISTERS {
@@ -510,7 +513,7 @@ pub fn generate_binary(
         let r = XRegIdent::take_masked(i as u32);
 
         let lui = rvhwfuzzer_encoding::Lui::new(r, value);
-        let addi = rvhwfuzzer_encoding::Addi::new(r, r, (((value & 0xFFF) << 4) as i32) >> 4);
+        let addi = rvhwfuzzer_encoding::Addi::new(r, r, (((value & 0xFFF) << 4) as i16) >> 4);
 
         add_instruction(&mut ctx, lui.into())?;
         add_instruction(&mut ctx, addi.into())?;

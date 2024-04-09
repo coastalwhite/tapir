@@ -408,7 +408,7 @@ impl<M: BackingStore> State<M> {
 
         let mut next_pc = self.pc().offset(instruction.num_bytes() as i8);
 
-        eprintln!("[PC={:08X}]: {}", self.pc(), &instruction);
+        println!("[PC={:08X}]: {}", self.pc(), &instruction);
 
         match instruction {
             Lui(args) => {
