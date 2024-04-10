@@ -2,10 +2,11 @@ use risico::memory::BackingStore;
 use risico::repr::{Addr, Word};
 
 use crate::MemoryArea;
+use crate::interval_tree::IntervalTree;
 
 pub struct ProgramMemory {
     pub bin: MemoryArea,
-    pub memory_areas: Box<[MemoryArea]>,
+    pub memory_areas: IntervalTree<u32>,
 }
 
 pub fn u32_to_usize(x: u32) -> usize {
@@ -81,6 +82,7 @@ impl ProgramMemory {
             return Some(&self.bin);
         }
 
+        self.memory_areas.
         println!("addr: 0x{addr}");
 
         for area in self.memory_areas.iter() {
@@ -120,26 +122,46 @@ impl ProgramMemory {
 impl BackingStore for ProgramMemory {
     #[inline]
     fn get_le_bytes(&self, at: Addr) -> u32 {
-        self.unwrapped_find_area(at).get_le_bytes(at)
+        if self.bin.contains_addr(at) {
+            return self.bin.get_le_bytes(at);
+        }
+
+        self.memory_areas.get_le_bytes(at)
     }
 
     #[inline]
     fn set_le_bytes(&mut self, at: Addr, value: u32) {
-        self.unwrapped_find_area_mut(at).set_le_bytes(at, value)
+        if self.bin.contains_addr(at) {
+            return self.bin.set_le_bytes(at, value);
+        }
+
+        self.memory_areas.set_le_bytes(at, value)
     }
 
     #[inline]
     fn write_to(&mut self, at: Addr, src: &[u8]) {
-        self.unwrapped_find_area_mut(at).write_to(at, src)
+        if self.bin.contains_addr(at) {
+            return self.bin.set_le_bytes(at, value);
+        }
+
+        self.memory_areas.set_le_bytes(at, value)
     }
 
     #[inline]
     fn set_byte(&mut self, at: Addr, byte: u8) {
-        self.unwrapped_find_area_mut(at).set_byte(at, byte)
+        if self.bin.contains_addr(at) {
+            return self.bin.set_le_bytes(at, value);
+        }
+
+        self.memory_areas.set_le_bytes(at, value)
     }
 
     #[inline]
     fn get_byte(&self, at: Addr) -> u8 {
-        self.unwrapped_find_area(at).get_byte(at)
+        if self.bin.contains_addr(at) {
+            return self.bin.get_byte(at);
+        }
+
+        self.memory_areas.get_byte(at)
     }
 }

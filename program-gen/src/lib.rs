@@ -4,6 +4,7 @@ mod randombits;
 mod classes;
 
 mod backing_store;
+mod interval_tree;
 
 use std::io;
 
@@ -16,7 +17,7 @@ use crate::classes::alu::CAluInstruction;
 use crate::classes::memory::MemoryInstruction;
 use crate::classes::muldiv::MulDivInstruction;
 
-use self::arbitrary::{ArbitraryInstruction, HopTarget};
+use self::arbitrary::{ArbitraryInstruction, HopTarget, GeneratedMemory};
 use self::backing_store::ProgramMemory;
 use self::classes::alu::AluInstruction;
 use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
@@ -407,77 +408,13 @@ impl MemoryArea {
     }
 }
 
-pub fn generate_memory_areas(viable_memory_ranges: &[std::ops::Range<u32>]) -> Box<[MemoryArea]> {
-    const DESIRED_MEMORY_AREAS: usize = 8;
-    const MIN_MEMORY_AREA_BYTES: u32 = 8;
-    const MAX_MEMORY_AREA_BYTES: u32 = 1024;
-
-    if viable_memory_ranges.is_empty() {
-        return Box::new([]);
-    }
-
-    let mut memory_areas = Vec::with_capacity(DESIRED_MEMORY_AREAS);
-
-    // We start at a random viable memory range, so that different parts of the memory will be
-    // used.
-    let mut current_viable_idx = fastrand::usize(0..viable_memory_ranges.len());
-    let mut current_viable_offset = viable_memory_ranges[current_viable_idx].start;
-
-    // We keep track of the number of regions we traverse so that we know when we have exhausted
-    // all of them.
-    let mut num_traversed_viable_ranges = 0usize;
-
-    while memory_areas.len() != DESIRED_MEMORY_AREAS {
-        let current_viable = &viable_memory_ranges[current_viable_idx];
-
-        debug_assert!(current_viable_offset >= current_viable.start);
-        debug_assert!(current_viable_offset <= current_viable.end);
-
-        let viable_leftover = current_viable.end - current_viable_offset;
-
-        // If we don't have enough bytes leftover in the current memory area, move to the next one.
-        if viable_leftover < MIN_MEMORY_AREA_BYTES {
-            num_traversed_viable_ranges += 1;
-            current_viable_idx += 1;
-            current_viable_idx %= viable_memory_ranges.len();
-
-            // We don't have any regions left, break the loop.
-            if num_traversed_viable_ranges >= viable_memory_ranges.len() {
-                break;
-            }
-
-            current_viable_offset = viable_memory_ranges[current_viable_idx].start;
-            continue;
-        }
-
-        // We can only skip as many bytes as would be fine to still generate an area in this viable
-        // range.
-        let max_skip_bytes = viable_leftover - MIN_MEMORY_AREA_BYTES;
-        let skip_bytes = fastrand::u32(0..=max_skip_bytes);
-
-        let area_start = current_viable_offset + skip_bytes;
-        let max_length = u32::min(viable_leftover - skip_bytes, MAX_MEMORY_AREA_BYTES);
-        let area_length = fastrand::u32(MIN_MEMORY_AREA_BYTES..=max_length);
-
-        let mut bytes = vec![0; area_length as usize];
-        fastrand::Rng::new().fill(&mut bytes);
-
-        memory_areas.push(MemoryArea {
-            start: Addr::from(area_start),
-            bytes,
-        });
-
-        current_viable_offset = area_start + area_length;
-    }
-
-    memory_areas.into_boxed_slice()
-}
-
 pub fn generate_binary(
     entry: u32,
-    viable_memory_ranges: &[std::ops::Range<u32>],
+    data_memory_ranges: &[std::ops::Range<u32>],
 ) -> io::Result<Program> {
-    let memory_areas = generate_memory_areas(viable_memory_ranges);
+    let memory_areas = data_memory_ranges.iter().map(|range| {
+
+    })generate_memory_areas(viable_memory_ranges);
     let recency_list = RegisterRecencyList::new();
 
     let memory = ProgramMemory {
@@ -505,7 +442,8 @@ pub fn generate_binary(
         hop_target: HopTarget::Padded(0),
         state,
         parameter_provider: recency_list,
-        memory_register_cache: None,
+        generated_memory: GeneratedMemory::new(),
+        potential_memory_registers: Vec::new(),
     };
 
     for i in 1..NUM_REGISTERS {
@@ -522,6 +460,8 @@ pub fn generate_binary(
     let num_bbs = fastrand::usize(MIN_BASIC_BLOCKS..MAX_BASIC_BLOCKS);
 
     for _ in 0..num_bbs {
+        println!("# of potential registers: {}", ctx.potential_memory_registers.len());
+        ctx.fill_potential_memory_registers();
         let num_instructions = fastrand::usize(MIN_INSTRUCTIONS_PER_BB..MAX_INSTRUCTIONS_PER_BB);
 
         for _ in 0..num_instructions {

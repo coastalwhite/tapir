@@ -1,8 +1,11 @@
+use std::collections::HashSet;
+
+use risico::memory::BackingStore;
 use risico::repr::Addr;
 use rvhwfuzzer_encoding::{Instruction, XRegIdent};
 
 use crate::backing_store::ProgramMemory;
-use crate::RegisterRecencyList;
+use crate::{RegisterRecencyList, NUM_REGISTERS};
 
 mod compressed;
 mod fpu32;
@@ -11,11 +14,47 @@ pub enum HopTarget {
     Padded(u32),
 }
 
+pub struct MemWord {
+    pub addr: Addr,
+    pub value: u32,
+}
+
+pub struct GeneratedMemory {
+    has_generated: HashSet<Addr>,
+    values: Vec<MemWord>,
+}
+
+impl GeneratedMemory {
+    pub fn new() -> Self {
+        Self {
+            has_generated: HashSet::new(),
+            values: Vec::new(),
+        }
+    }
+
+    pub fn generate(&mut self, addr: Addr) -> Option<u32> {
+        // Check that the addr is word aligned
+        debug_assert!(addr.is_word_aligned());
+
+        let did_exist = self.has_generated.insert(addr);
+
+        if did_exist {
+            return None;
+        }
+
+        let value = fastrand::u32(..);
+        self.values.push(MemWord { addr, value });
+
+        Some(value)
+    }
+}
+
 pub struct ArbitraryGenerationContext {
     pub hop_target: HopTarget,
     pub state: risico::State<ProgramMemory>,
     pub parameter_provider: RegisterRecencyList,
-    pub memory_register_cache: Option<(XRegIdent, std::ops::Range<u32>)>,
+    pub potential_memory_registers: Vec<(XRegIdent, std::ops::Range<u32>)>,
+    pub generated_memory: GeneratedMemory,
 }
 
 fn addr_in_range_of_memory_region(addr: Addr, start: u32, end: u32) -> bool {
@@ -55,52 +94,146 @@ impl ArbitraryGenerationContext {
         &mut self.parameter_provider
     }
 
-    pub fn take_memory_register(&self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
-        // @Hack
-        //
-        // This is like insanely slow... Like taking up 75% of the runtime slow.  This should be
-        // fixed for sure. Maybe, we just introduce top level methods to keep track of which
-        // registers might contain memory addresses or this just needs to be changed fully to a
-        // more general model where we create memory registers somehow. I am not 100% sure yeth
-        // how, but this is just too slow.
-        //
+    // Problems for the memory operations:
+    //
+    // 1. Initiating the memory
+    //    * You don't want to initiate it all, because you will be using only a little of it. It
+    //      is actually better not to use a lot, because that increases data locality.
+    //    * You want this to not cause too much runtime overhead.
+    //    * Maybe look into Interval / Segment Trees.
+    // 2. Find which registers can reach into memory properly.
+    //    * This is more difficult as you don't want to run over every memory region for every
+    //      register every time you want to check whether a memory instruction is available.
+    //    * Three main methods:
+    //      1. Check every time you try to take a register for a memory operation. Caching doesn't
+    //         really work as the negative case is very promenent.
+    //      2. Update a list of viable registers every time a register value is updates. This would
+    //         require intensive hooking into risico, but that might not be the worst.
+    //      3. Check periodically for registers that are viable for memory operations,
+    //    * For all three methods, we generate a bitmap of the valid addresses beforehand to easy
+    //      initial checking, sort of like a Bloom filter.
+    pub fn ensure_memory_available(&mut self, addr: Addr, width: u8) {
+        debug_assert!(width <= 4);
+
+        if let Some(value) = self.generated_memory.generate(addr.word_align()) {
+            self.state_mut()
+                .memory_mut()
+                .write_to(addr.word_align(), &value.to_le_bytes());
+        }
+
         // @Note
-        // Caching also doesn't really work here, because the negative case is too common.
-        //
-        // @Note
-        // We introduce randomness here to allow for different patterns in the accesses to memory.
-        // 
-        // For example:
-        //  LW a0,0[<D1>]
-        //  SW a0,0[<D2>]
-        //
-        // This would be impossible to achieve without this kind of randomness.
-        //
-        // This is really expensive though as otherwise we would just cache these things. Maybe, it
-        // is worth it do some form of intermediate solution. Maybe, we can cache several things
-        // recalculate only every N times and try to take from the cache in the mean time. That way
-        // we don't have to check each time.
-
-        let register_offset = fastrand::usize(0..=31);
-        for i in 0..31 {
-            let rs = self.params().inner[(i + register_offset) % 31];
-            let addr = self.state().registers().get(rs).as_addr();
-
-            let region_offset = fastrand::usize(0..=31);
-            for j in 0..self.state().memory().memory_areas.len() {
-                let region = self.state().memory().memory_areas
-                    [(region_offset + j) % self.state().memory().memory_areas.len()]
-                .range();
-
-                if addr_in_range_of_memory_region(addr, region.start, region.end) {
-                    return Some((rs, region));
-                }
+        // Sometimes memory requests span more than a single word. I am not sure this allowed
+        // anymore. @TODO.
+        if addr.word_offset() + width as u8 > 4 {
+            let next_addr = addr.word_align().offset(4);
+            if let Some(value) = self.generated_memory.generate(next_addr) {
+                self.state_mut()
+                    .memory_mut()
+                    .write_to(next_addr, &value.to_le_bytes());
             }
+        }
+    }
+
+    pub fn take_memory_register(&mut self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
+        if self.potential_memory_registers.is_empty() {
+            return None;
+        }
+
+        let mut idx = fastrand::usize(0..self.potential_memory_registers.len());
+
+        loop {
+            let (reg, area) = &self.potential_memory_registers[idx];
+
+            let addr = self.state().registers().get(*reg).as_addr();
+
+            if addr_in_range_of_memory_region(addr, area.start, area.end) {
+                return Some((*reg, area.clone()));
+            }
+
+            self.potential_memory_registers.remove(idx);
+
+            if self.potential_memory_registers.is_empty() {
+                break;
+            }
+
+            idx %= self.potential_memory_registers.len();
         }
 
         None
     }
 
+    pub fn fill_potential_memory_registers(&mut self) {
+        let num_memory_areas = self.state().memory().memory_areas.len();
+
+        if num_memory_areas == 0 {
+            return;
+        }
+
+        for rs in 1..NUM_REGISTERS {
+            let rs = XRegIdent::take_masked(rs as u32);
+            let addr = self.state().registers().get(rs).as_addr();
+
+            let region_offset = fastrand::usize(0..num_memory_areas);
+            for j in 0..num_memory_areas {
+                let region =
+                    &self.state().memory().memory_areas[(region_offset + j) % num_memory_areas];
+                let region = region.range();
+
+                if addr_in_range_of_memory_region(addr, region.start, region.end) {
+                    self.potential_memory_registers.push((rs, region));
+                    break;
+                }
+            }
+        }
+    }
+
+    // pub fn take_memory_register(&self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
+    //     // @Hack
+    //     //
+    //     // This is like insanely slow... Like taking up 75% of the runtime slow.  This should be
+    //     // fixed for sure. Maybe, we just introduce top level methods to keep track of which
+    //     // registers might contain memory addresses or this just needs to be changed fully to a
+    //     // more general model where we create memory registers somehow. I am not 100% sure yeth
+    //     // how, but this is just too slow.
+    //     //
+    //     // @Note
+    //     // Caching also doesn't really work here, because the negative case is too common.
+    //     //
+    //     // @Note
+    //     // We introduce randomness here to allow for different patterns in the accesses to memory.
+    //     //
+    //     // For example:
+    //     //  LW a0,0[<D1>]
+    //     //  SW a0,0[<D2>]
+    //     //
+    //     // This would be impossible to achieve without this kind of randomness.
+    //     //
+    //     // This is really expensive though as otherwise we would just cache these things. Maybe, it
+    //     // is worth it do some form of intermediate solution. Maybe, we can cache several things
+    //     // recalculate only every N times and try to take from the cache in the mean time. That way
+    //     // we don't have to check each time.
+    //
+    //     let register_offset = fastrand::usize(0..=31);
+    //     for i in 0..31 {
+    //         let rs = self.params().inner[(i + register_offset) % 31];
+    //         let addr = self.state().registers().get(rs).as_addr();
+    //
+    //         let region_offset = fastrand::usize(0..=31);
+    //         for j in 0..self.state().memory().memory_areas.len() {
+    //             let region = self.state().memory().memory_areas
+    //                 [(region_offset + j) % self.state().memory().memory_areas.len()]
+    //             .range();
+    //
+    //             if addr_in_range_of_memory_region(addr, region.start, region.end) {
+    //                 return Some((rs, region));
+    //             }
+    //         }
+    //     }
+    //
+    //     None
+    // }
+    //
+    // // Cached
     // pub fn take_memory_register(&mut self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
     //     if let Some((r, region)) = self.memory_register_cache.clone() {
     //         let addr = self.state().registers().get(r).as_addr();
