@@ -6,7 +6,7 @@ use crate::interval_tree::IntervalTree;
 
 pub struct ProgramMemory {
     pub bin: MemoryArea,
-    pub memory_areas: IntervalTree<u32>,
+    pub memory_areas: IntervalTree,
 }
 
 pub fn u32_to_usize(x: u32) -> usize {
@@ -76,49 +76,6 @@ impl BackingStore for MemoryArea {
     }
 }
 
-impl ProgramMemory {
-    pub fn find_area(&self, addr: Addr) -> Option<&MemoryArea> {
-        if self.bin.contains_addr(addr) {
-            return Some(&self.bin);
-        }
-
-        self.memory_areas.
-        println!("addr: 0x{addr}");
-
-        for area in self.memory_areas.iter() {
-            if area.contains_addr(addr) {
-                return Some(area);
-            }
-        }
-
-        None
-    }
-
-    pub fn find_area_mut(&mut self, addr: Addr) -> Option<&mut MemoryArea> {
-        if self.bin.contains_addr(addr) {
-            return Some(&mut self.bin);
-        }
-
-        println!("addr: 0x{addr}");
-
-        for area in self.memory_areas.iter_mut() {
-            if area.contains_addr(addr) {
-                return Some(area);
-            }
-        }
-
-        None
-    }
-
-    pub fn unwrapped_find_area(&self, addr: Addr) -> &MemoryArea {
-        self.find_area(addr).expect("Unable to find memory area")
-    }
-
-    pub fn unwrapped_find_area_mut(&mut self, addr: Addr) -> &mut MemoryArea {
-        self.find_area_mut(addr).expect("Unable to find memory area")
-    }
-}
-
 impl BackingStore for ProgramMemory {
     #[inline]
     fn get_le_bytes(&self, at: Addr) -> u32 {
@@ -141,19 +98,19 @@ impl BackingStore for ProgramMemory {
     #[inline]
     fn write_to(&mut self, at: Addr, src: &[u8]) {
         if self.bin.contains_addr(at) {
-            return self.bin.set_le_bytes(at, value);
+            return self.bin.write_to(at, src);
         }
 
-        self.memory_areas.set_le_bytes(at, value)
+        self.memory_areas.write_to(at, src)
     }
 
     #[inline]
     fn set_byte(&mut self, at: Addr, byte: u8) {
         if self.bin.contains_addr(at) {
-            return self.bin.set_le_bytes(at, value);
+            return self.bin.set_byte(at, byte);
         }
 
-        self.memory_areas.set_le_bytes(at, value)
+        self.memory_areas.set_byte(at, byte)
     }
 
     #[inline]

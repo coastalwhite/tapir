@@ -53,17 +53,24 @@ pub struct ArbitraryGenerationContext {
     pub hop_target: HopTarget,
     pub state: risico::State<ProgramMemory>,
     pub parameter_provider: RegisterRecencyList,
+    pub data_memory_ranges: Vec<std::ops::Range<u32>>,
     pub potential_memory_registers: Vec<(XRegIdent, std::ops::Range<u32>)>,
-    pub generated_memory: GeneratedMemory,
 }
 
 fn addr_in_range_of_memory_region(addr: Addr, start: u32, end: u32) -> bool {
     // @Hack: This should be a WrappingRange, not a normal range
-    let delta_start = addr.as_u32().wrapping_sub(start);
-    let delta_end = end.wrapping_sub(addr.as_u32());
+    let delta_start = addr.as_u32().saturating_sub(start);
+    let delta_end = end.saturating_add(addr.as_u32());
 
     // 12-bit signed immediate, plus a margin of 8
     const MAX_OFFSET: u32 = (1 << 11) - 8 - 12;
+
+    // let min_abs_diff = u32::min(
+    //     addr.as_u32().abs_diff(start),
+    //     addr.as_u32().abs_diff(end),
+    //     );
+    //
+    // dbg!(min_abs_diff);
 
     delta_start < MAX_OFFSET && delta_end < MAX_OFFSET
 }
@@ -115,25 +122,22 @@ impl ArbitraryGenerationContext {
     pub fn ensure_memory_available(&mut self, addr: Addr, width: u8) {
         debug_assert!(width <= 4);
 
-        if let Some(value) = self.generated_memory.generate(addr.word_align()) {
-            self.state_mut()
-                .memory_mut()
-                .write_to(addr.word_align(), &value.to_le_bytes());
-        }
-
-        // @Note
-        // Sometimes memory requests span more than a single word. I am not sure this allowed
-        // anymore. @TODO.
-        if addr.word_offset() + width as u8 > 4 {
-            let next_addr = addr.word_align().offset(4);
-            if let Some(value) = self.generated_memory.generate(next_addr) {
-                self.state_mut()
-                    .memory_mut()
-                    .write_to(next_addr, &value.to_le_bytes());
-            }
-        }
+        self.state_mut()
+            .memory_mut()
+            .memory_areas
+            .initialize_fill(addr.as_u32()..addr.as_u32() + u32::from(width), || fastrand::u8(..))
     }
 
+    // @Improve
+    // The registers are not really tempted to go near the available data memory ranges. Maybe, it
+    // would be a good idea to add an incentive for that or something. Next to that, it might also
+    // make sense to add different operations to the memory:
+    //
+    //  - Adjust a known memory address
+    //  - Adjust a memory address that is adjacent to a known memory address
+    //  - Adjust a entirely random memory address
+    //
+    // This way you increase the amount of data locality.
     pub fn take_memory_register(&mut self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
         if self.potential_memory_registers.is_empty() {
             return None;
@@ -163,24 +167,27 @@ impl ArbitraryGenerationContext {
     }
 
     pub fn fill_potential_memory_registers(&mut self) {
-        let num_memory_areas = self.state().memory().memory_areas.len();
-
-        if num_memory_areas == 0 {
+        if self.data_memory_ranges.is_empty() {
             return;
         }
+
+        let num_memory_areas = self.data_memory_ranges.len();
+
+        // dbg!(self.state().registers());
 
         for rs in 1..NUM_REGISTERS {
             let rs = XRegIdent::take_masked(rs as u32);
             let addr = self.state().registers().get(rs).as_addr();
 
+            // println!("Addr[{rs}]: 0x{:08x}", addr.as_u32());
+
             let region_offset = fastrand::usize(0..num_memory_areas);
             for j in 0..num_memory_areas {
-                let region =
-                    &self.state().memory().memory_areas[(region_offset + j) % num_memory_areas];
-                let region = region.range();
+                let region = self.data_memory_ranges[(region_offset + j) % num_memory_areas].clone();
 
                 if addr_in_range_of_memory_region(addr, region.start, region.end) {
                     self.potential_memory_registers.push((rs, region));
+                    println!("[lw] POTENTIAL REGISTER");
                     break;
                 }
             }

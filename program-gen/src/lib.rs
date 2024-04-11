@@ -23,6 +23,7 @@ use self::classes::alu::AluInstruction;
 use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
 use self::classes::fpu32::FPU32Instruction;
 use self::classes::nonhopping_branches::NonHoppingBranch;
+use self::interval_tree::IntervalTree;
 use self::randombits::RandomBits;
 
 const NUM_REGISTERS: usize = 32;
@@ -144,9 +145,9 @@ impl RegisterRecencyList {
 
         match weight {
             0..=127 => self.inner[u8::min(offset & 0x3, 2) as usize],
-            128..=191 => XRegIdent::Zero,
-            192..=223 => self.inner[4 + (offset & 0x3) as usize],
-            224..=239 => self.inner[8 + (offset & 0x3) as usize],
+            128..=191 => self.inner[4 + (offset & 0x3) as usize],
+            192..=223 => self.inner[8 + (offset & 0x3) as usize],
+            224..=239 => XRegIdent::Zero,
             240..=247 => self.inner[12 + (offset & 0x3) as usize],
             248..=251 => self.inner[16 + (offset & 0x3) as usize],
             252..=253 => self.inner[20 + (offset & 0x3) as usize],
@@ -269,19 +270,22 @@ macro_rules! weighted_random {
         $($weight:literal => $struct:ident,)+
         $fallback:ident $(,)?
     ) => {
-        const MAX_WEIGHT: i32 = 0 $(+ $weight)+;
+        const MAX_WEIGHT: u32 = 0 $(+ $weight)+;
 
-        let mut offset = 0i32;
-        let r = fastrand::i32(0..MAX_WEIGHT);
+        let mut r = fastrand::u32(0..MAX_WEIGHT);
 
         $(
-        if r < offset {
+        if r < $weight {
             if let Some(instr) = <$struct as arbitrary::ArbitraryContextualInstruction>::try_take($ctx) {
                 return instr;
             }
+
+            #[allow(unused_assignments)]
+            { r = 0; }
+        } else {
+            #[allow(unused_assignments)]
+            { r -= $weight; }
         }
-        #[allow(unused_assignments)]
-        { offset += $weight; }
         )+
 
         <$fallback as arbitrary::ArbitraryInstruction>::take($ctx)
@@ -337,9 +341,9 @@ fn instantiate_hop_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruct
 fn instantiate_still_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruction {
     weighted_random! {
         [ctx]
-        64 => AluInstruction,
-        32 => MemoryInstruction,
         32 => CAluInstruction,
+        160 => MemoryInstruction,
+        192 => AluInstruction,
         8  => MulDivInstruction,
         8  => FPU32Instruction,
         8  => CsrRead,
@@ -369,7 +373,7 @@ pub struct MemoryArea {
 
 pub struct Program {
     pub bin: MemoryArea,
-    pub memory_areas: Box<[MemoryArea]>,
+    pub memory_areas: IntervalTree,
     pub entry: u32,
 }
 
@@ -412,9 +416,7 @@ pub fn generate_binary(
     entry: u32,
     data_memory_ranges: &[std::ops::Range<u32>],
 ) -> io::Result<Program> {
-    let memory_areas = data_memory_ranges.iter().map(|range| {
-
-    })generate_memory_areas(viable_memory_ranges);
+    let memory_areas = IntervalTree::new();
     let recency_list = RegisterRecencyList::new();
 
     let memory = ProgramMemory {
@@ -442,7 +444,7 @@ pub fn generate_binary(
         hop_target: HopTarget::Padded(0),
         state,
         parameter_provider: recency_list,
-        generated_memory: GeneratedMemory::new(),
+        data_memory_ranges: data_memory_ranges.to_vec(),
         potential_memory_registers: Vec::new(),
     };
 
@@ -460,7 +462,7 @@ pub fn generate_binary(
     let num_bbs = fastrand::usize(MIN_BASIC_BLOCKS..MAX_BASIC_BLOCKS);
 
     for _ in 0..num_bbs {
-        println!("# of potential registers: {}", ctx.potential_memory_registers.len());
+        // println!("# of potential registers: {}", ctx.potential_memory_registers.len());
         ctx.fill_potential_memory_registers();
         let num_instructions = fastrand::usize(MIN_INSTRUCTIONS_PER_BB..MAX_INSTRUCTIONS_PER_BB);
 
