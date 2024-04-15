@@ -8,10 +8,12 @@ use std::collections::VecDeque;
 use risico::memory::BackingStore;
 use risico::repr::Addr;
 
+#[derive(Debug)]
 pub struct IntervalTree {
     intervals: Vec<IntervalTreeItem>,
 }
 
+#[derive(Debug)]
 pub struct IntervalTreeItem {
     start: u32,
     content: VecDeque<u8>,
@@ -169,20 +171,19 @@ impl IntervalTree {
             use Ordering as O;
 
             match i.interval_idx_cmp(idx) {
-                IO::Less => O::Less,
+                IO::Less => O::Greater,
                 IO::Contains => O::Equal,
-                IO::Greater => O::Greater,
+                IO::Greater => O::Less,
             }
         })
     }
 
     fn binary_search_interval(&self, idx: u32) -> Result<(&IntervalTreeItem, usize), usize> {
-        self.internal_binary_search_interval(idx)
-            .map(|interval_idx| {
-                let interval = &self.intervals[interval_idx];
-                debug_assert!(interval.range().contains(&idx));
-                (interval, interval_idx)
-            })
+        self.internal_binary_search_interval(idx).map(|interval_idx| {
+            let interval = &self.intervals[interval_idx];
+            debug_assert!(interval.range().contains(&idx));
+            (interval, interval_idx)
+        })
     }
 
     fn binary_search_interval_mut(
@@ -200,8 +201,8 @@ impl IntervalTree {
     fn insert_at(&mut self, idx: u32, insertion_idx: usize, value: u8) -> (&mut u8, usize) {
         let can_merge_with_prev =
             insertion_idx != 0 && self.intervals[insertion_idx - 1].end() == idx;
-        let can_merge_with_next =
-            insertion_idx != self.intervals.len() && self.intervals[insertion_idx].start() == idx;
+        let can_merge_with_next = insertion_idx != self.intervals.len()
+            && self.intervals[insertion_idx].start() == idx + 1;
 
         match (can_merge_with_prev, can_merge_with_next) {
             (true, true) => {
@@ -371,7 +372,7 @@ impl IntervalTree {
 
         let interval_end = self.binary_search_interval(end - 1);
 
-        debug_assert!(interval_start < interval_end.map_or_else(|i| i, |(_, i)| i));
+        debug_assert!(interval_start <= interval_end.map_or_else(|i| i, |(_, i)| i));
 
         let interval_end = match interval_end {
             Err(interval_end) if interval_end == interval_start + 1 => {
@@ -446,31 +447,35 @@ impl IntervalTree {
 
         let interval_end = self.initialize(range.end - 1, f());
 
+        debug_assert!(interval_start <= interval_end);
+
         if interval_start == interval_end {
             return;
         }
 
-        debug_assert!(interval_start > interval_end);
-
-        for i in 0..interval_end - interval_start {
-            let bridge_distance = self.intervals[interval_start + i + 1].start()
-                - self.intervals[interval_start + i].end();
-            debug_assert!(bridge_distance > 0);
-
-            // @Hack. This is really inefficient.
-            let mut vs = Vec::with_capacity(bridge_distance as usize);
-            for i in 0..bridge_distance as usize {
-                vs[i] = f();
-            }
-
-            self.intervals[interval_start].extend_back(&vs);
-
-            // @Note. This can be way more efficient if we remove everything at once. Might
-            // also just not be needed to remove at this point since we are memcpy-ing anyway.
-            let interval = self.intervals.remove(interval_start + 1);
-            debug_assert_eq!(interval.start, self.intervals[interval_start].end());
-            self.intervals[interval_start].merge_back(interval);
+        for i in range.start + 1..range.end - 1 {
+            self.initialize(i, f());
         }
+
+        // for i in 0..interval_end - interval_start {
+        //     let bridge_distance = self.intervals[interval_start + i + 1].start()
+        //         - self.intervals[interval_start + i].end();
+        //     debug_assert!(bridge_distance > 0);
+        //
+        //     // @Hack. This is really inefficient.
+        //     let mut vs = Vec::with_capacity(bridge_distance as usize);
+        //     for i in 0..bridge_distance as usize {
+        //         vs[i] = f();
+        //     }
+        //
+        //     self.intervals[interval_start].extend_back(&vs);
+        //
+        //     // @Note. This can be way more efficient if we remove everything at once. Might
+        //     // also just not be needed to remove at this point since we are memcpy-ing anyway.
+        //     let interval = self.intervals.remove(interval_start + 1);
+        //     debug_assert_eq!(interval.start, self.intervals[interval_start].end());
+        //     self.intervals[interval_start].merge_back(interval);
+        // }
     }
 }
 
@@ -489,5 +494,38 @@ impl BackingStore for IntervalTree {
 
     fn write_to(&mut self, at: Addr, src: &[u8]) {
         self.fill_range(at.as_u32(), src)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic() {
+        let mut tree = IntervalTree::new();
+
+        let mut i = 0;
+        tree.initialize_fill(0..16, || {
+            let value = 42 + i;
+            i += 1;
+            value
+        });
+
+        dbg!(&tree);
+
+        assert_eq!(tree.intervals.len(), 1);
+
+        for i in 0..16 {
+            assert!(tree.get(i).is_some());
+        }
+
+        tree.fill_range(4, &[5, 7, 9, 11]);
+
+        assert_eq!(tree.intervals.len(), 1);
+
+        for i in 0..4 {
+            assert_eq!(tree.get(i + 4), Some(i as u8 * 2 + 5));
+        }
     }
 }

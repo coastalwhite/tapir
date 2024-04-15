@@ -8,7 +8,7 @@ fn main() -> std::io::Result<()> {
 
     let mut num_instructions = 0u64;
 
-    for i in 0..100000 {
+    for i in 0..10000 {
         let binary = generate_binary(0x8000_0000, &[0x7000_0000..0x8000_0000])?;
 
         // for (i, b) in binary.iter().enumerate() {

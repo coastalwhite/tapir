@@ -59,11 +59,11 @@ pub struct ArbitraryGenerationContext {
 
 fn addr_in_range_of_memory_region(addr: Addr, start: u32, end: u32) -> bool {
     // @Hack: This should be a WrappingRange, not a normal range
-    let delta_start = addr.as_u32().saturating_sub(start);
-    let delta_end = end.saturating_add(addr.as_u32());
+    addr.as_u32() >= start && addr.as_u32() < end - 8
 
+    // @Hack: This should take into account that we can have an offset value
     // 12-bit signed immediate, plus a margin of 8
-    const MAX_OFFSET: u32 = (1 << 11) - 8 - 12;
+    // const MAX_OFFSET: u32 = (1 << 11) - 8 - 12;
 
     // let min_abs_diff = u32::min(
     //     addr.as_u32().abs_diff(start),
@@ -72,7 +72,7 @@ fn addr_in_range_of_memory_region(addr: Addr, start: u32, end: u32) -> bool {
     //
     // dbg!(min_abs_diff);
 
-    delta_start < MAX_OFFSET && delta_end < MAX_OFFSET
+    // delta_start < MAX_OFFSET && delta_end < MAX_OFFSET
 }
 
 impl ArbitraryGenerationContext {
@@ -122,10 +122,12 @@ impl ArbitraryGenerationContext {
     pub fn ensure_memory_available(&mut self, addr: Addr, width: u8) {
         debug_assert!(width <= 4);
 
+        let width = 8;
+
         self.state_mut()
             .memory_mut()
             .memory_areas
-            .initialize_fill(addr.as_u32()..addr.as_u32() + u32::from(width), || fastrand::u8(..))
+            .initialize_fill(addr.word_align().as_u32()..addr.as_u32() + width, || fastrand::u8(..))
     }
 
     // @Improve
@@ -187,11 +189,45 @@ impl ArbitraryGenerationContext {
 
                 if addr_in_range_of_memory_region(addr, region.start, region.end) {
                     self.potential_memory_registers.push((rs, region));
-                    println!("[lw] POTENTIAL REGISTER");
                     break;
                 }
             }
         }
+    }
+
+    fn generate_appropriate_offset(&mut self, addr: Addr, region: std::ops::Range<u32>, width: u32) -> i16 {
+        // eprintln!("Generating memory offset 0x{:08x}!", addr.as_u32());
+
+        self.ensure_memory_available(addr, width as u8);
+        
+        0
+        // let addr_min = addr.as_u32().saturating_sub(1u32 << 11);
+        // let addr_max = addr.as_u32().saturating_add((1u32 << 11) - 1);
+        //
+        // const MIN_REGION_BYTES: u32 = 8;
+        //
+        // debug_assert!(width <= MIN_REGION_BYTES, "Width is too large");
+        // debug_assert!(
+        //     region.len() >= MIN_REGION_BYTES as usize,
+        //     "Regions are expected to be at least {} bytes long",
+        //     MIN_REGION_BYTES
+        // );
+        //
+        // eprintln!("addr: 0x{:08x}", addr.as_u32());
+        // eprintln!("addr_min: 0x{addr_min:08x}, addr_max: 0x{addr_max:08x}, before");
+        //
+        // let addr_min = addr_min.max(region.start);
+        // let addr_max = addr_max.min(region.end - width - 1);
+        //
+        // eprintln!(
+        //     "addr_min: 0x{addr_min:08x}, addr_max: 0x{addr_max:08x}, region: 0x{:08x}..0x{:08x}",
+        //     region.start, region.end
+        // );
+        //
+        // let offset = fastrand::u32(0..addr_max - addr_min);
+        // let result_addr = addr_min.wrapping_add(offset);
+        //
+        // result_addr.wrapping_sub(addr.as_u32()) as i32 as i16
     }
 
     // pub fn take_memory_register(&self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
@@ -413,35 +449,6 @@ impl_shiftimm_args! { Slli, Srli, Srai }
 //     }
 // }
 
-fn generate_appropriate_offset(addr: Addr, region: std::ops::Range<u32>, width: u32) -> i16 {
-    let addr_min = addr.as_u32().saturating_sub(1u32 << 11);
-    let addr_max = addr.as_u32().saturating_add((1u32 << 11) - 1);
-
-    const MIN_REGION_BYTES: u32 = 8;
-
-    debug_assert!(width <= MIN_REGION_BYTES, "Width is too large");
-    debug_assert!(
-        region.len() >= MIN_REGION_BYTES as usize,
-        "Regions are expected to be at least {} bytes long",
-        MIN_REGION_BYTES
-    );
-
-    eprintln!("addr: 0x{:08x}", addr.as_u32());
-    eprintln!("addr_min: 0x{addr_min:08x}, addr_max: 0x{addr_max:08x}, before");
-
-    let addr_min = addr_min.max(region.start);
-    let addr_max = addr_max.min(region.end - width - 1);
-
-    eprintln!(
-        "addr_min: 0x{addr_min:08x}, addr_max: 0x{addr_max:08x}, region: 0x{:08x}..0x{:08x}",
-        region.start, region.end
-    );
-
-    let offset = fastrand::u32(0..addr_max - addr_min);
-    let result_addr = addr_min.wrapping_add(offset);
-
-    result_addr.wrapping_sub(addr.as_u32()) as i32 as i16
-}
 
 macro_rules! impl_load {
     ($($name:ident($width:literal)),+ $(,)?) => {
@@ -451,9 +458,9 @@ macro_rules! impl_load {
                 let (rs, region) = ctx.take_memory_register()?;
                 let rd = ctx.params_mut().take_register_dest();
                 let rs_value = ctx.state().registers().get(rs).as_addr();
-                let offset = generate_appropriate_offset(rs_value, region, $width);
+                let offset = ctx.generate_appropriate_offset(rs_value, region, $width);
 
-                eprintln!("rd = {rd:?}\nrs = {rs:?}\noffset = {offset}\nrs value = 0x{:08x}", rs_value);
+                // eprintln!("rd = {rd:?}\nrs = {rs:?}\noffset = {offset}\nrs value = 0x{:08x}", rs_value);
 
                 Some(Self::new(
                     rd,
@@ -474,9 +481,9 @@ macro_rules! impl_store {
                 let (rs1, region) = ctx.take_memory_register()?;
                 let rs2 = ctx.params_mut().take_register_src();
                 let rs1_value = ctx.state().registers().get(rs1).as_addr();
-                let offset = generate_appropriate_offset(rs1_value, region, $width);
+                let offset = ctx.generate_appropriate_offset(rs1_value, region, $width);
 
-                eprintln!("rs2 = {rs2:?}\nrs1 = {rs1:?}\noffset = {offset}\nrs value = 0x{:08x}", rs1_value);
+                // eprintln!("rs2 = {rs2:?}\nrs1 = {rs1:?}\noffset = {offset}\nrs value = 0x{:08x}", rs1_value);
 
                 Some(Self::new(
                     rs1,
