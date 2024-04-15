@@ -48,11 +48,6 @@ impl RandomBits {
         self.take(num_bits) as u8
     }
 
-    pub fn take_u16(&mut self, num_bits: u32) -> u16 {
-        debug_assert!(num_bits <= 16);
-        self.take(num_bits) as u16
-    }
-
     pub fn take_u32(&mut self, num_bits: u32) -> u32 {
         debug_assert!(num_bits <= 32);
         self.take(num_bits) as u32

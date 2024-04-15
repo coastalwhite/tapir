@@ -1,5 +1,5 @@
 define_instruction_class! {
-    AluInstruction {
+    AluInstruction "still" {
         Lui(Lui),
         Auipc(Auipc),
         Addi(Addi),
@@ -25,7 +25,7 @@ define_instruction_class! {
 }
 
 define_instruction_class! {
-    CAluInstruction {
+    CAluInstruction "still" {
         CAddi16Sp(CAddi16Sp),
         CAddi4SpN(CAddi4SpN),
         CAddi(CAddi),

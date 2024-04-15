@@ -132,7 +132,7 @@ impl Fcsr {
     }
 
     #[inline]
-    pub fn new(ctx: &CsrInitContext) -> Self {
+    pub fn new(_: &CsrInitContext) -> Self {
         let frm = 0b000; // TiesToEven
         let fflags = 0b00000;
 

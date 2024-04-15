@@ -35,7 +35,7 @@ pub enum TrapCause {
 
 impl Mtvec {
     #[inline]
-    pub fn new(ctx: &CsrInitContext) -> Self {
+    pub fn new(_: &CsrInitContext) -> Self {
         Self(0)
     }
 

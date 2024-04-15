@@ -1,12 +1,11 @@
 use crate::device_config::{
-    Driver as DCDriver, ProcessDriver, Section, SectionAccessPolicy, StoreAllocationKind,
-    StoreDriver, StoreInitialization, CacheReplacementPolicy,
+    CacheReplacementPolicy, Driver as DCDriver, ProcessDriver, Section, SectionAccessPolicy,
+    StoreAllocationKind, StoreInitialization,
 };
 use crate::driver::cache::{Cache, CachePolicy};
 use crate::driver::process::DriverProcess;
 use crate::memory::{
-    BackingStore, Driver, DynamicDataArray, MappedMemoryBuilder, MemoryPermissions, MemoryRegion,
-    StaticDataArray,
+    BackingStore, Driver, DynamicDataArray, MappedMemoryBuilder, MemoryPermissions, StaticDataArray,
 };
 use crate::repr::Addr;
 
@@ -95,7 +94,9 @@ impl OrderedSections {
 
                                 // TODO: Make section customizable
                                 let Some(elf_section) = obj_file.section_by_name(".text") else {
-                                    eprintln!("ERROR: Given binary does not contain `.text` section");
+                                    eprintln!(
+                                        "ERROR: Given binary does not contain `.text` section"
+                                    );
                                     std::process::exit(1);
                                 };
 
@@ -133,12 +134,17 @@ impl OrderedSections {
 
             let driver = match section.cache() {
                 Some(cache) => {
-                    let cache = Cache::new(cache.associativity, cache.sets as usize, cache.cache_line_words as usize, match cache.replacement {
-                        CacheReplacementPolicy::FirstInFirstOut => CachePolicy::FIFO,
-                        CacheReplacementPolicy::Random => unimplemented!(),
-                    });
+                    let cache = Cache::new(
+                        cache.associativity,
+                        cache.sets as usize,
+                        cache.cache_line_words as usize,
+                        match cache.replacement {
+                            CacheReplacementPolicy::FirstInFirstOut => CachePolicy::FIFO,
+                            CacheReplacementPolicy::Random => unimplemented!(),
+                        },
+                    );
                     driver.with_permissions_and_cache(permissions, cache)
-                },
+                }
                 None => driver.with_permissions(permissions),
             };
 

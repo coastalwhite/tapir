@@ -12,17 +12,17 @@ use risico::repr::{Addr, Size};
 use rvhwfuzzer_encoding::{CXRegIdent, FRegIdent, Instruction, RoundingMode, XRegIdent};
 use rvisa::{MIsa, MIsaExt};
 
-use crate::arbitrary::ArbitraryGenerationContext;
+use crate::arbitrary::{ArbitraryGenerationContext, ArbitraryHopInstruction, Branch};
 use crate::classes::alu::CAluInstruction;
 use crate::classes::memory::MemoryInstruction;
 use crate::classes::muldiv::MulDivInstruction;
 
-use self::arbitrary::{ArbitraryInstruction, GeneratedMemory, HopTarget};
+use self::arbitrary::HopTarget;
 use self::backing_store::ProgramMemory;
 use self::classes::alu::AluInstruction;
 use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
 use self::classes::fpu32::FPU32Instruction;
-use self::classes::nonhopping_branches::NonHoppingBranch;
+use self::classes::hop::Hop;
 use self::interval_tree::{IntervalTree, MemoryRanges};
 use self::randombits::RandomBits;
 
@@ -34,8 +34,11 @@ const MAX_BASIC_BLOCKS: usize = 100;
 const MIN_INSTRUCTIONS_PER_BB: usize = 1;
 const MAX_INSTRUCTIONS_PER_BB: usize = 100;
 
-const MIN_PADDING: u32 = 16;
-const MAX_PADDING: u32 = 64;
+struct RegisterRecencyList {
+    entropy: RandomBits,
+    inner: [XRegIdent; NUM_REGISTERS - 1],
+    fpu: [FRegIdent; FPU_NUM_REGISTERS],
+}
 
 impl RegisterRecencyList {
     fn take_static_rounding_mode(&mut self) -> RoundingMode {
@@ -53,21 +56,21 @@ impl RegisterRecencyList {
         }
     }
 
-    fn take_rounding_mode(&mut self) -> RoundingMode {
-        let rm = self.entropy.take(3);
-
-        use RoundingMode as R;
-        match rm {
-            0b001 => R::ToZero,
-            0b010 => R::Down,
-            0b011 => R::Up,
-            0b100 => R::TiesToMaxMagnitude,
-            0b111 => R::Dynamic,
-
-            // @NOTE: This is biased towards the TiesToEven operation
-            _ => R::TiesToEven,
-        }
-    }
+    // fn take_rounding_mode(&mut self) -> RoundingMode {
+    //     let rm = self.entropy.take(3);
+    //
+    //     use RoundingMode as R;
+    //     match rm {
+    //         0b001 => R::ToZero,
+    //         0b010 => R::Down,
+    //         0b011 => R::Up,
+    //         0b100 => R::TiesToMaxMagnitude,
+    //         0b111 => R::Dynamic,
+    //
+    //         // @NOTE: This is biased towards the TiesToEven operation
+    //         _ => R::TiesToEven,
+    //     }
+    // }
 
     fn take_immediate(&mut self, bitsize: u32) -> u64 {
         debug_assert!(bitsize > 0 && bitsize <= 64);
@@ -127,19 +130,6 @@ impl RegisterRecencyList {
     }
 
     pub fn take_register_src(&mut self) -> XRegIdent {
-        // This works as follows.
-        // We take a weighted random register from `register_recency`.
-        //
-        //   RegId : Weight
-        //  1 -  3 : 128
-        //       0 :  64
-        //  4 -  7 :  32
-        //  8 - 11 :  16
-        // 12 - 15 :   8
-        // 16 - 19 :   4
-        // 20 - 23 :   2
-        // 24 - 31 :   2
-
         let offset: u8 = self.entropy.take_u8(4);
         let weight: u8 = self.entropy.take_u8(8);
 
@@ -238,32 +228,6 @@ impl RegisterRecencyList {
     }
 }
 
-#[rustfmt::skip]
-enum ExceptionCauseValue {
-    InstructionAddrMisaligned =  0,
-    InstructionAccessFault    =  1,
-    IllegalInstruction        =  2,
-    Breakpoint                =  3,
-    LoadAddrMisaligned        =  4,
-    LoadAccessFault           =  5,
-    StoreAMOAddrMisaligned    =  6,
-    StoreAMOAccessFault       =  7,
-    EnvironmentCallFromUMode  =  8,
-    EnvironmentCallFromSMode  =  9,
-    EnvironmentCallFromMMode  = 11,
-    InstructionPageFault      = 12,
-    LoadPageFault             = 13,
-    StoreAMOPageFault         = 15,
-}
-
-struct RegisterRecencyList {
-    entropy: RandomBits,
-    inner: [XRegIdent; NUM_REGISTERS - 1],
-    fpu: [FRegIdent; FPU_NUM_REGISTERS],
-}
-
-impl RegisterRecencyList {}
-
 macro_rules! weighted_random {
     (
         [$ctx:ident]
@@ -276,7 +240,7 @@ macro_rules! weighted_random {
 
         $(
         if r < $weight {
-            if let Some(instr) = <$struct as arbitrary::ArbitraryContextualInstruction>::try_take($ctx) {
+            if let Some(instr) = <$struct as arbitrary::ArbitraryContextualStillInstruction>::try_take($ctx) {
                 return instr;
             }
 
@@ -288,54 +252,12 @@ macro_rules! weighted_random {
         }
         )+
 
-        <$fallback as arbitrary::ArbitraryInstruction>::take($ctx)
+        <$fallback as arbitrary::ArbitraryStillInstruction>::take($ctx)
     };
 }
 
-pub struct Jump;
-pub struct HoppingBranch;
-
-impl ArbitraryInstruction for Jump {
-    fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
-        let padding = fastrand::u32(MIN_PADDING..MAX_PADDING);
-        let padding = padding & !0x3;
-        let offset = padding + 4;
-
-        ctx.hop_target = HopTarget::Padded(padding);
-
-        rvhwfuzzer_encoding::Jal::new(XRegIdent::Zero, offset as i32).into()
-    }
-}
-
-impl ArbitraryInstruction for HoppingBranch {
-    fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
-        let padding = fastrand::u32(MIN_PADDING..MAX_PADDING);
-        let padding = padding & !0x3;
-        let offset = padding + 4;
-
-        let rs1 = ctx.params_mut().take_register_src();
-        let rs2 = ctx.params_mut().take_register_src();
-
-        let rs1_value = ctx.state().registers().get(rs1);
-        let rs2_value = ctx.state().registers().get(rs2);
-
-        ctx.hop_target = HopTarget::Padded(padding);
-
-        if rs1_value == rs2_value {
-            rvhwfuzzer_encoding::Beq::new(rs1, rs2, offset as i16).into()
-        } else {
-            rvhwfuzzer_encoding::Bne::new(rs1, rs2, offset as i16).into()
-        }
-    }
-}
-
-fn instantiate_hop_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruction {
-    weighted_random! {
-        [ctx]
-        8 => Jump,
-        8 => HoppingBranch,
-        Jump,
-    }
+fn instantiate_hop_instruction(ctx: &mut ArbitraryGenerationContext) -> (Instruction, HopTarget) {
+    <Hop as ArbitraryHopInstruction>::take(ctx)
 }
 
 fn instantiate_still_instruction(ctx: &mut ArbitraryGenerationContext) -> Instruction {
@@ -349,7 +271,7 @@ fn instantiate_still_instruction(ctx: &mut ArbitraryGenerationContext) -> Instru
         8  => CsrRead,
         4  => CsrWrite,
         3  => CsrImmWrite,
-        1  => NonHoppingBranch,
+        1  => Branch,
         AluInstruction
     }
 }
@@ -378,22 +300,27 @@ pub struct Program {
 }
 
 impl Program {
+    /// Get the needed initial memory for the program
     pub fn initial_memory(&self) -> MemoryRanges {
         self.memory_areas.initial()
     }
 
+    /// Get the expected final memory for the program
     pub fn final_memory(&self) -> MemoryRanges {
         self.memory_areas.content()
     }
 
+    /// Take the instruction memory
     pub fn take_instruction_memory(self) -> MemoryArea {
         self.bin
     }
 
+    /// Get a reference to the instruction memory
     pub fn instruction_memory(&self) -> &[u8] {
         &self.bin.bytes
     }
 
+    /// Get the entry point of the program
     pub fn entry(&self) -> u32 {
         self.entry
     }
@@ -463,7 +390,6 @@ pub fn generate_binary(
     );
 
     let mut ctx = ArbitraryGenerationContext {
-        hop_target: HopTarget::Padded(0),
         state,
         parameter_provider: recency_list,
         data_memory_ranges: data_memory_ranges.to_vec(),
@@ -493,10 +419,10 @@ pub fn generate_binary(
             add_instruction(&mut ctx, instruction)?;
         }
 
-        let hop_instruction = instantiate_hop_instruction(&mut ctx);
+        let (hop_instruction, hop_target) = instantiate_hop_instruction(&mut ctx);
         add_instruction(&mut ctx, hop_instruction)?;
 
-        match ctx.hop_target {
+        match hop_target {
             HopTarget::Padded(padding) => {
                 ctx.state_mut()
                     .memory_mut()
@@ -549,7 +475,6 @@ fn show_concrete() -> std::io::Result<()> {
     // let mut num_instructions = 0u64;
 
     for _ in 0..100 {
-
         let binary = generate_binary(0, &[0x7000_0000..0x8000_0000])?;
 
         let mut binary = &binary.bin.bytes[..];

@@ -104,15 +104,15 @@ impl IntervalTreeItem {
         self.start + self.content.len() as u32
     }
 
-    #[inline(always)]
-    fn len(&self) -> u32 {
-        self.end() - self.start()
-    }
-
-    #[inline(always)]
-    fn contains(&self, x: u32) -> bool {
-        x >= self.start() && x < self.end()
-    }
+    // #[inline(always)]
+    // fn len(&self) -> u32 {
+    //     self.end() - self.start()
+    // }
+    //
+    // #[inline(always)]
+    // fn contains(&self, x: u32) -> bool {
+    //     x >= self.start() && x < self.end()
+    // }
 
     #[inline(always)]
     fn range(&self) -> std::ops::Range<u32> {
@@ -139,20 +139,20 @@ impl IntervalTreeItem {
         }
     }
 
-    /// Merge `self` and `other`, where `other.start < self.start`
-    ///
-    /// This assumes that `other` and `self` are positioned immediately after each other i.e.
-    /// `self.start == other.end`.
-    fn merge_front(&mut self, mut other: Self) {
-        debug_assert_eq!(self.start(), other.end());
-
-        other.content.extend(std::mem::take(&mut self.content));
-        other.initial.extend(std::mem::take(&mut self.initial));
-
-        self.start = other.start;
-        self.content = other.content;
-        self.initial = other.initial;
-    }
+    // /// Merge `self` and `other`, where `other.start < self.start`
+    // ///
+    // /// This assumes that `other` and `self` are positioned immediately after each other i.e.
+    // /// `self.start == other.end`.
+    // fn merge_front(&mut self, mut other: Self) {
+    //     debug_assert_eq!(self.start(), other.end());
+    //
+    //     other.content.extend(std::mem::take(&mut self.content));
+    //     other.initial.extend(std::mem::take(&mut self.initial));
+    //
+    //     self.start = other.start;
+    //     self.content = other.content;
+    //     self.initial = other.initial;
+    // }
 
     /// Merge `self` and `other`, where `self.start < other.start`
     ///
@@ -177,14 +177,14 @@ impl IntervalTreeItem {
         self.initial.push_back(value);
     }
 
-    /// Extend several items at the front of the range
-    fn extend_front(&mut self, buffer: &[u8]) {
-        // @Improve: Possible optimization
-        for b in buffer.iter().cloned().rev() {
-            self.content.push_front(b);
-            self.initial.push_front(b);
-        }
-    }
+    // /// Extend several items at the front of the range
+    // fn extend_front(&mut self, buffer: &[u8]) {
+    //     // @Improve: Possible optimization
+    //     for b in buffer.iter().cloned().rev() {
+    //         self.content.push_front(b);
+    //         self.initial.push_front(b);
+    //     }
+    // }
 
     /// Extend several items at the extend of the range
     fn extend_back(&mut self, buffer: &[u8]) {
@@ -318,17 +318,18 @@ impl IntervalTree {
         }
     }
 
+    #[cfg(test)]
     pub fn get(&self, idx: u32) -> Option<u8> {
         let (interval, _) = self.binary_search_interval(idx).ok()?;
         let offset = (idx - interval.start()) as usize;
         Some(interval.content[offset])
     }
 
-    pub fn get_mut(&mut self, idx: u32) -> Option<&mut u8> {
-        let (interval, _) = self.binary_search_interval_mut(idx).ok()?;
-        let offset = (idx - interval.start()) as usize;
-        Some(&mut interval.content[offset])
-    }
+    // pub fn get_mut(&mut self, idx: u32) -> Option<&mut u8> {
+    //     let (interval, _) = self.binary_search_interval_mut(idx).ok()?;
+    //     let offset = (idx - interval.start()) as usize;
+    //     Some(&mut interval.content[offset])
+    // }
 
     /// Initializes or sets the memory at `idx` to `value`
     pub fn insert(&mut self, idx: u32, value: u8) -> usize {
@@ -368,24 +369,24 @@ impl IntervalTree {
         Ok(())
     }
 
-    /// Returns whether the interval tree contain specified memory for `idx`
-    pub fn contains(&self, idx: u32) -> bool {
-        self.binary_search_interval(idx).is_ok()
-    }
+    // /// Returns whether the interval tree contain specified memory for `idx`
+    // pub fn contains(&self, idx: u32) -> bool {
+    //     self.binary_search_interval(idx).is_ok()
+    // }
 
-    /// Returns whether the interval tree contain specified memory for all addresses in range
-    /// `range`
-    pub fn contains_range(&self, range: std::ops::Range<u32>) -> bool {
-        if range.is_empty() {
-            return true;
-        }
-
-        let Ok((interval, _)) = self.binary_search_interval(range.start) else {
-            return false;
-        };
-
-        interval.end() >= range.end
-    }
+    // /// Returns whether the interval tree contain specified memory for all addresses in range
+    // /// `range`
+    // pub fn contains_range(&self, range: std::ops::Range<u32>) -> bool {
+    //     if range.is_empty() {
+    //         return true;
+    //     }
+    //
+    //     let Ok((interval, _)) = self.binary_search_interval(range.start) else {
+    //         return false;
+    //     };
+    //
+    //     interval.end() >= range.end
+    // }
 
     fn initialize(&mut self, idx: u32, value: u8) -> usize {
         let interval = self.binary_search_interval(idx);
@@ -589,7 +590,7 @@ mod tests {
             value
         });
 
-        dbg!(&tree);
+        // dbg!(&tree);
 
         assert_eq!(tree.intervals.len(), 1);
 

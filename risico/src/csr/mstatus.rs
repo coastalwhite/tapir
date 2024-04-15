@@ -63,8 +63,8 @@ macro_rules! bitfields {
 }
 
 impl MStatus {
-    /// Summarize dirty
-    const SD_MASK: u64 = 1 << 31;
+    // /// Summarize dirty
+    // const SD_MASK: u64 = 1 << 31;
 
     /// Machine-mode Previous Privilege mode
     const MPP_MASK: u64 = 3 << 11;

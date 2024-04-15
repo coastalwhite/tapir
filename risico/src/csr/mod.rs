@@ -93,10 +93,6 @@ impl Empty {
         Self
     }
 
-    fn is_available() -> bool {
-        true
-    }
-
     fn read(&self) -> u32 {
         0
     }
@@ -107,10 +103,6 @@ impl Empty {
 impl Simple {
     fn new(_: &CsrInitContext) -> Self {
         Self(0)
-    }
-
-    fn is_available() -> bool {
-        true
     }
 
     pub fn read(&self) -> u32 {

@@ -1,5 +1,5 @@
 define_instruction_class! {
-    MemoryInstruction {
+    MemoryInstruction "still" {
         Lb(Lb),
         Lh(Lh),
         Lw(Lw),

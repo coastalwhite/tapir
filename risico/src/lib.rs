@@ -19,10 +19,9 @@ pub mod trap;
 pub use execute::{State, StateECallBehavior};
 use rvisa::MIsa;
 
-use self::device_config::{Isa, Section};
+use self::device_config::Section;
 use self::memory::MappedMemory;
 use self::ordered_sections::OrderedSections;
-use self::syscall::ECallBehavior;
 use self::trap::TrapBehavior;
 
 pub struct RuntimeParameters {

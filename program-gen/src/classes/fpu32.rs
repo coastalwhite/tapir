@@ -1,5 +1,5 @@
 define_instruction_class! {
-    FPU32Instruction {
+    FPU32Instruction "still" {
         FmaddS(FmaddS),
         FmsubS(FmsubS),
         FnmaddS(FnmaddS),

@@ -59,7 +59,6 @@ pub struct MemoryRegion {
 
 #[derive(Debug, Clone)]
 pub struct MappedMemory {
-    default_entry: u32,
     map: Vec<(AddressRegion, MemoryRegion)>,
     last_access_cache_result: RefCell<Option<CacheResult>>,
 }
@@ -181,7 +180,6 @@ impl MappedMemory {
 
     pub fn full() -> Self {
         Self {
-            default_entry: 0,
             map: vec![(
                 0..=0xFFFF_FFFF,
                 MemoryRegion {
@@ -196,7 +194,6 @@ impl MappedMemory {
 
     pub fn rwx_until(addr: u32) -> Self {
         Self {
-            default_entry: 0,
             map: vec![(
                 0..=addr - 1,
                 MemoryRegion {
@@ -253,7 +250,6 @@ impl MappedMemoryBuilder {
         //         .collect::<Vec<AddressRegion>>()
         // );
         MappedMemory {
-            default_entry: self.default_entry.unwrap_or(0),
             map: self.map,
             last_access_cache_result: RefCell::new(None),
         }
@@ -341,7 +337,7 @@ impl BackingStore for StaticDataArray {
                 Some(word) => *word,
                 None => {
                     eprintln!("ERROR: Out of range read of static array (size = 0x{:08x}, read addr = 0x{:08x}).", self.data.len(), at / 4);
-                    std::process::exit(1);
+                    std::process::exit(1)
                 }
             };
         }

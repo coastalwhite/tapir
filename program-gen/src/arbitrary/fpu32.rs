@@ -1,8 +1,8 @@
-use super::{ArbitraryInstruction, ArbitraryGenerationContext};
+use super::{ArbitraryStillInstruction, ArbitraryGenerationContext};
 
 macro_rules! impl_arbitrary_args {
     ($name:ident { [$ctx:ident] $($arg:expr),* $(,)? }) => {
-        impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn take($ctx: &mut ArbitraryGenerationContext) -> ::rvhwfuzzer_encoding::Instruction {
                 Self::new($( $arg, )+).into()
             }

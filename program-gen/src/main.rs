@@ -1,14 +1,14 @@
-use rvhwfuzzer_program_gen::{generate_binary, MemoryArea};
+use rvhwfuzzer_program_gen::{generate_binary};
 
 fn main() -> std::io::Result<()> {
-    use std::io::Write;
+    // use std::io::Write;
 
     // let mut stdout = std::io::stdout().lock();
     // let stdout = &mut stdout;
 
     let mut num_instructions = 0u64;
 
-    for i in 0..10000 {
+    for _ in 0..10000 {
         let binary = generate_binary(0x8000_0000, &[0x7000_0000..0x8000_0000])?;
 
         // for (i, b) in binary.iter().enumerate() {

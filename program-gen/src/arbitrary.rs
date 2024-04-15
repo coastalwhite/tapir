@@ -1,56 +1,21 @@
-use std::collections::HashSet;
-
-use risico::memory::BackingStore;
 use risico::repr::Addr;
 use rvhwfuzzer_encoding::{Instruction, XRegIdent};
 
 use crate::backing_store::ProgramMemory;
 use crate::{RegisterRecencyList, NUM_REGISTERS};
 
-mod compressed;
-mod fpu32;
-
 pub enum HopTarget {
     Padded(u32),
 }
 
-pub struct MemWord {
-    pub addr: Addr,
-    pub value: u32,
-}
+pub struct Jump;
+pub struct Branch;
 
-pub struct GeneratedMemory {
-    has_generated: HashSet<Addr>,
-    values: Vec<MemWord>,
-}
-
-impl GeneratedMemory {
-    pub fn new() -> Self {
-        Self {
-            has_generated: HashSet::new(),
-            values: Vec::new(),
-        }
-    }
-
-    pub fn generate(&mut self, addr: Addr) -> Option<u32> {
-        // Check that the addr is word aligned
-        debug_assert!(addr.is_word_aligned());
-
-        let did_exist = self.has_generated.insert(addr);
-
-        if did_exist {
-            return None;
-        }
-
-        let value = fastrand::u32(..);
-        self.values.push(MemWord { addr, value });
-
-        Some(value)
-    }
-}
+mod compressed;
+mod fpu32;
+mod hop;
 
 pub struct ArbitraryGenerationContext {
-    pub hop_target: HopTarget,
     pub state: risico::State<ProgramMemory>,
     pub parameter_provider: RegisterRecencyList,
     pub data_memory_ranges: Vec<std::ops::Range<u32>>,
@@ -59,6 +24,7 @@ pub struct ArbitraryGenerationContext {
 
 fn addr_in_range_of_memory_region(addr: Addr, start: u32, end: u32) -> bool {
     // @Hack: This should be a WrappingRange, not a normal range
+    // @Hack: This is currently way to conservative. Even taking -8 instead of -4.
     addr.as_u32() >= start && addr.as_u32() < end - 8
 
     // @Hack: This should take into account that we can have an offset value
@@ -91,10 +57,10 @@ impl ArbitraryGenerationContext {
         self.state
     }
 
-    #[inline(always)]
-    pub fn params(&self) -> &RegisterRecencyList {
-        &self.parameter_provider
-    }
+    // #[inline(always)]
+    // pub fn params(&self) -> &RegisterRecencyList {
+    //     &self.parameter_provider
+    // }
 
     #[inline(always)]
     pub fn params_mut(&mut self) -> &mut RegisterRecencyList {
@@ -122,8 +88,13 @@ impl ArbitraryGenerationContext {
     pub fn ensure_memory_available(&mut self, addr: Addr, width: u8) {
         debug_assert!(width <= 4);
 
+        // @TODO
+        // Make variable according to the width
         let width = 8;
 
+        // @Note
+        // This should at least generate from floor(addr, 4) to (addr + 4) because risico uses all
+        // that memory to deal with misaligned memory accesses.
         self.state_mut()
             .memory_mut()
             .memory_areas
@@ -195,121 +166,45 @@ impl ArbitraryGenerationContext {
         }
     }
 
-    fn generate_appropriate_offset(&mut self, addr: Addr, region: std::ops::Range<u32>, width: u32) -> i16 {
+    fn generate_appropriate_offset(&mut self, addr: Addr, _region: std::ops::Range<u32>, width: u32) -> i16 {
         // eprintln!("Generating memory offset 0x{:08x}!", addr.as_u32());
 
         self.ensure_memory_available(addr, width as u8);
         
+        // @TODO: This is is currently very boring and should be able to generate many different
+        // offsets.
         0
-        // let addr_min = addr.as_u32().saturating_sub(1u32 << 11);
-        // let addr_max = addr.as_u32().saturating_add((1u32 << 11) - 1);
-        //
-        // const MIN_REGION_BYTES: u32 = 8;
-        //
-        // debug_assert!(width <= MIN_REGION_BYTES, "Width is too large");
-        // debug_assert!(
-        //     region.len() >= MIN_REGION_BYTES as usize,
-        //     "Regions are expected to be at least {} bytes long",
-        //     MIN_REGION_BYTES
-        // );
-        //
-        // eprintln!("addr: 0x{:08x}", addr.as_u32());
-        // eprintln!("addr_min: 0x{addr_min:08x}, addr_max: 0x{addr_max:08x}, before");
-        //
-        // let addr_min = addr_min.max(region.start);
-        // let addr_max = addr_max.min(region.end - width - 1);
-        //
-        // eprintln!(
-        //     "addr_min: 0x{addr_min:08x}, addr_max: 0x{addr_max:08x}, region: 0x{:08x}..0x{:08x}",
-        //     region.start, region.end
-        // );
-        //
-        // let offset = fastrand::u32(0..addr_max - addr_min);
-        // let result_addr = addr_min.wrapping_add(offset);
-        //
-        // result_addr.wrapping_sub(addr.as_u32()) as i32 as i16
     }
 
-    // pub fn take_memory_register(&self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
-    //     // @Hack
-    //     //
-    //     // This is like insanely slow... Like taking up 75% of the runtime slow.  This should be
-    //     // fixed for sure. Maybe, we just introduce top level methods to keep track of which
-    //     // registers might contain memory addresses or this just needs to be changed fully to a
-    //     // more general model where we create memory registers somehow. I am not 100% sure yeth
-    //     // how, but this is just too slow.
-    //     //
-    //     // @Note
-    //     // Caching also doesn't really work here, because the negative case is too common.
-    //     //
-    //     // @Note
-    //     // We introduce randomness here to allow for different patterns in the accesses to memory.
-    //     //
-    //     // For example:
-    //     //  LW a0,0[<D1>]
-    //     //  SW a0,0[<D2>]
-    //     //
-    //     // This would be impossible to achieve without this kind of randomness.
-    //     //
-    //     // This is really expensive though as otherwise we would just cache these things. Maybe, it
-    //     // is worth it do some form of intermediate solution. Maybe, we can cache several things
-    //     // recalculate only every N times and try to take from the cache in the mean time. That way
-    //     // we don't have to check each time.
-    //
-    //     let register_offset = fastrand::usize(0..=31);
-    //     for i in 0..31 {
-    //         let rs = self.params().inner[(i + register_offset) % 31];
-    //         let addr = self.state().registers().get(rs).as_addr();
-    //
-    //         let region_offset = fastrand::usize(0..=31);
-    //         for j in 0..self.state().memory().memory_areas.len() {
-    //             let region = self.state().memory().memory_areas
-    //                 [(region_offset + j) % self.state().memory().memory_areas.len()]
-    //             .range();
-    //
-    //             if addr_in_range_of_memory_region(addr, region.start, region.end) {
-    //                 return Some((rs, region));
-    //             }
-    //         }
-    //     }
-    //
-    //     None
-    // }
-    //
-    // // Cached
-    // pub fn take_memory_register(&mut self) -> Option<(XRegIdent, std::ops::Range<u32>)> {
-    //     if let Some((r, region)) = self.memory_register_cache.clone() {
-    //         let addr = self.state().registers().get(r).as_addr();
-    //         if addr_in_range_of_memory_region(addr, region.start, region.end) {
-    //             return Some((r, region));
-    //         }
-    //     }
-    //
-    //     let output = self.uncached_take_memory_register();
-    //     self.memory_register_cache = output.clone();
-    //     output
-    // }
 }
 
-pub trait ArbitraryInstruction {
+pub trait ArbitraryStillInstruction {
     fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction;
 }
 
-impl<T: ArbitraryInstruction> ArbitraryContextualInstruction for T {
+pub trait ArbitraryHopInstruction {
+    fn take(ctx: &mut ArbitraryGenerationContext) -> (Instruction, HopTarget);
+}
+
+pub trait ArbitraryContextualStillInstruction {
+    fn try_take(ctx: &mut ArbitraryGenerationContext) -> Option<Instruction>;
+}
+
+pub trait ArbitraryContextualHopInstruction {
+    fn try_take(ctx: &mut ArbitraryGenerationContext) -> Option<(Instruction, HopTarget)>;
+}
+
+impl<T: ArbitraryStillInstruction> ArbitraryContextualStillInstruction for T {
     #[inline(always)]
     fn try_take(ctx: &mut ArbitraryGenerationContext) -> Option<Instruction> {
         Some(Self::take(ctx))
     }
 }
 
-pub trait ArbitraryContextualInstruction {
-    fn try_take(ctx: &mut ArbitraryGenerationContext) -> Option<Instruction>;
-}
-
 macro_rules! impl_regreg_args {
     ($($name:ident),+ $(,)?) => {
         $(
-        impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
@@ -325,7 +220,7 @@ macro_rules! impl_regreg_args {
 macro_rules! impl_regimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
-        impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
@@ -341,7 +236,7 @@ macro_rules! impl_regimm_args {
 macro_rules! impl_shiftimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
-        impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
@@ -357,7 +252,7 @@ macro_rules! impl_shiftimm_args {
 macro_rules! impl_reghighimm_args {
     ($($name:ident),+ $(,)?) => {
         $(
-        impl ArbitraryInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn take(ctx: &mut ArbitraryGenerationContext) -> Instruction {
                 Self::new(
                     ctx.params_mut().take_register_dest(),
@@ -453,7 +348,7 @@ impl_shiftimm_args! { Slli, Srli, Srai }
 macro_rules! impl_load {
     ($($name:ident($width:literal)),+ $(,)?) => {
         $(
-        impl ArbitraryContextualInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryContextualStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn try_take(ctx: &mut ArbitraryGenerationContext) -> Option<Instruction> {
                 let (rs, region) = ctx.take_memory_register()?;
                 let rd = ctx.params_mut().take_register_dest();
@@ -476,7 +371,7 @@ macro_rules! impl_load {
 macro_rules! impl_store {
     ($($name:ident($width:literal)),+ $(,)?) => {
         $(
-        impl ArbitraryContextualInstruction for ::rvhwfuzzer_encoding::$name {
+        impl ArbitraryContextualStillInstruction for ::rvhwfuzzer_encoding::$name {
             fn try_take(ctx: &mut ArbitraryGenerationContext) -> Option<Instruction> {
                 let (rs1, region) = ctx.take_memory_register()?;
                 let rs2 = ctx.params_mut().take_register_src();

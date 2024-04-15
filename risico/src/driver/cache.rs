@@ -1,3 +1,7 @@
+#![allow(unused)]
+
+// @TODO: This whole module is a big todo.
+
 use crate::repr::Addr;
 
 type CacheSet = (Vec<CacheLine>, CachePolicyInstance);

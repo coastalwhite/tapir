@@ -32,10 +32,56 @@ macro_rules! define_instruction_class {
             }
         }
     };
-    ($name:ident { $($instr_name:ident($args_name:ident)),+ $(,)?  } |$ctx:ident| $is_available:expr) => {
+    ($name:ident "still" { $($instr_name:ident($args_name:ident)),+ $(,)?  } |$ctx:ident| $is_available:expr) => {
         define_instruction_class!(@internal $name { $($instr_name($args_name)),+ });
 
-        impl $crate::arbitrary::ArbitraryContextualInstruction for $name {
+        impl $crate::arbitrary::ArbitraryContextualStillInstruction for $name {
+            #[inline]
+            fn try_take($ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> Option<::rvhwfuzzer_encoding::Instruction> {
+                if (!$is_available) {
+                    return None;
+                }
+
+                let r = ($ctx.params_mut().take_u32(Self::NUM_INSTRUCTIONS.ilog2() + 1) as usize);
+                let r = if r >= Self::NUM_INSTRUCTIONS { r - Self::NUM_INSTRUCTIONS } else { r };
+
+                static LUT: [fn(&mut $crate::arbitrary::ArbitraryGenerationContext) -> Option<::rvhwfuzzer_encoding::Instruction>; 0 $(+ { stringify!($args_name); 1 })+] = [
+                    $(
+                    <::rvhwfuzzer_encoding::$args_name as $crate::arbitrary::ArbitraryContextualStillInstruction>::try_take, 
+                    )+
+                ];
+
+                (LUT[r])($ctx)
+            }
+        }
+
+    };
+
+    ($name:ident "still" { $($instr_name:ident($args_name:ident)),+ $(,)?}) => {
+        define_instruction_class!(@internal $name { $($instr_name($args_name)),+ });
+
+        impl $crate::arbitrary::ArbitraryStillInstruction for $name {
+            #[inline]
+            fn take(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> ::rvhwfuzzer_encoding::Instruction {
+                let r = (ctx.params_mut().take_u32(Self::NUM_INSTRUCTIONS.ilog2() + 1) as usize);
+                let r = if r >= Self::NUM_INSTRUCTIONS { r - Self::NUM_INSTRUCTIONS } else { r };
+
+                static LUT: [fn(&mut $crate::arbitrary::ArbitraryGenerationContext) -> ::rvhwfuzzer_encoding::Instruction; 0 $(+ { stringify!($args_name); 1 })+] = [
+                    $(
+                    <::rvhwfuzzer_encoding::$args_name as $crate::arbitrary::ArbitraryStillInstruction>::take, 
+                    )+
+                ];
+
+                (LUT[r])(ctx)
+            }
+        }
+
+    };
+
+    ($name:ident "hop" { $($instr_name:ident($args_name:ident)),+ $(,)?  } |$ctx:ident| $is_available:expr) => {
+        define_instruction_class!(@internal $name { $($instr_name($args_name)),+ });
+
+        impl $crate::arbitrary::ArbitraryHopInstruction for $name {
             #[inline]
             fn try_take($ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> Option<::rvhwfuzzer_encoding::Instruction> {
                 if (!$is_available) {
@@ -57,10 +103,10 @@ macro_rules! define_instruction_class {
 
     };
 
-    ($name:ident { $($instr_name:ident($args_name:ident)),+ $(,)?}) => {
+    ($name:ident "hop" { $($instr_name:ident($args_name:ident)),+ $(,)?}) => {
         define_instruction_class!(@internal $name { $($instr_name($args_name)),+ });
 
-        impl $crate::arbitrary::ArbitraryInstruction for $name {
+        impl $crate::arbitrary::ArbitraryHopInstruction for $name {
             #[inline]
             fn take(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> ::rvhwfuzzer_encoding::Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_INSTRUCTIONS.ilog2() + 1) as usize);
@@ -80,6 +126,7 @@ macro_rules! define_instruction_class {
 }
 
 pub mod nonhopping_branches;
+pub mod hop;
 pub mod fpu32;
 pub mod alu;
 pub mod muldiv;

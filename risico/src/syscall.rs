@@ -60,7 +60,7 @@ impl From<u32> for AssertType {
             1 => Self::U32,
             2 => Self::I32,
             3 => Self::F32,
-            3 => Self::Ptr,
+            4 => Self::Ptr,
             _ => Self::Invalid,
         }
     }
@@ -98,11 +98,11 @@ impl SystemCallConvention for TestingConvention {
                 let start = args[0];
                 let end = start + args[1];
 
-                for addr in start..end {
-                    todo!()
-                    // let value = memory.get_without_cache((addr & 0xFFFF_FFFC).into());
+                for _addr in start..end {
+                    // @TODO: Fix this
+                    // let value = memory.get((addr & 0xFFFF_FFFC).into());
                     // let value = (value >> ((3 - (addr & 0x3)) * 8)) as u8;
-
+                    // 
                     // println!("{value:02x}");
                 }
                 SystemCallResult::Return(None)

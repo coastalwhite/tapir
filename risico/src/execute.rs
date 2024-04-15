@@ -1,23 +1,16 @@
-use std::cell::Cell;
 use std::fmt::Debug;
-use std::io::{Read, Write};
-use std::process::exit;
 
 use rsoftfloat::f32::F32;
 use rvhwfuzzer_encoding::{FRegIdent, XRegIdent};
 use rvisa::{MIsaExt, MIsa};
 
-use crate::csr::fcsr::ExceptionFlags;
 use crate::csr::mstatus::ExtStatus;
 use crate::csr::mtvec::TrapCause;
 use crate::csr::{ControlStatusRegisters, CsrWriteContext, Mode};
-use crate::device_config::Isa;
-use crate::driver::cache::CacheResult;
-use crate::memory::{BackingStore, Endianness, MappedMemory};
-use crate::repr::{Addr, Offset, Size, Word};
+use crate::memory::{BackingStore, Endianness};
+use crate::repr::{Addr, Offset, Word};
 use crate::syscall::{ECallBehavior, SystemCallResult};
 use crate::trap::TrapBehavior;
-use crate::util::{is_signaling_nan, sign_extend};
 
 #[repr(u8)]
 enum RoundingMode {
@@ -89,7 +82,6 @@ pub struct StateECallBehavior {
 
 #[derive(Clone)]
 pub struct State<M: BackingStore> {
-    isa: rvisa::MIsa,
     privilege: PrivilegeLevel,
     trap_behavior: TrapBehavior,
     ecall_behavior: StateECallBehavior,
@@ -203,7 +195,6 @@ impl<M: BackingStore> State<M> {
 
         State {
             registers,
-            isa,
             privilege: PrivilegeLevel::Machine,
             ecall_behavior,
             trap_behavior,
@@ -1503,7 +1494,7 @@ impl<M: BackingStore> State<M> {
                     .handle(&mut self.registers, &mut self.memory)
                 {
                     SystemCallResult::Return(_) => {}
-                    SystemCallResult::Jump(target) => {
+                    SystemCallResult::Jump(_) => {
                         unreachable!();
                     }
                     SystemCallResult::Exit(error_code) => {
@@ -2101,11 +2092,11 @@ impl<M: BackingStore> State<M> {
         }
     }
 
-    fn set_pc(&mut self, addr: Addr) {
+    pub fn set_pc(&mut self, addr: Addr) {
         self.registers.set_pc(addr);
     }
 
-    fn offset_pc(&mut self, offset: impl Into<Offset>) {
+    pub fn offset_pc(&mut self, offset: impl Into<Offset>) {
         self.registers.set_pc(self.pc().offset(offset));
     }
 
@@ -2210,23 +2201,23 @@ impl<M: BackingStore> State<M> {
     //     }
     // }
 
-    fn environment_break(&mut self) {
-        println!("{:?}", self);
-        use std::io::{stdin, stdout, Write};
-        let mut s = String::new();
-        print!("Continue (Y/n): ");
-        let _ = stdout().flush();
-        stdin()
-            .read_line(&mut s)
-            .expect("Did not enter a correct string");
-        if let Some('\n') = s.chars().next_back() {
-            s.pop();
-        }
-        if let Some('\r') = s.chars().next_back() {
-            s.pop();
-        }
-        if !(s.is_empty() | s.starts_with(&['y', 'Y'])) {
-            exit(0);
-        }
-    }
+    // fn environment_break(&mut self) {
+    //     println!("{:?}", self);
+    //     use std::io::{stdin, stdout, Write};
+    //     let mut s = String::new();
+    //     print!("Continue (Y/n): ");
+    //     let _ = stdout().flush();
+    //     stdin()
+    //         .read_line(&mut s)
+    //         .expect("Did not enter a correct string");
+    //     if let Some('\n') = s.chars().next_back() {
+    //         s.pop();
+    //     }
+    //     if let Some('\r') = s.chars().next_back() {
+    //         s.pop();
+    //     }
+    //     if !(s.is_empty() | s.starts_with(&['y', 'Y'])) {
+    //         exit(0);
+    //     }
+    // }
 }

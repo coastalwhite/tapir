@@ -28,7 +28,7 @@ macro_rules! csrs {
             const NUM_CSRS: usize = 0 $($(+ { stringify!($write_ident); 1 })?)+;
         }
 
-        impl $crate::arbitrary::ArbitraryInstruction for CsrRead {
+        impl $crate::arbitrary::ArbitraryStillInstruction for CsrRead {
             fn take(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_CSRS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_CSRS { r - Self::NUM_CSRS } else { r };
@@ -39,7 +39,7 @@ macro_rules! csrs {
             }
         }
 
-        impl $crate::arbitrary::ArbitraryInstruction for CsrWrite {
+        impl $crate::arbitrary::ArbitraryStillInstruction for CsrWrite {
             fn take(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_CSRS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_CSRS { r - Self::NUM_CSRS } else { r };
@@ -50,7 +50,7 @@ macro_rules! csrs {
             }
         }
 
-        impl $crate::arbitrary::ArbitraryInstruction for CsrImmWrite {
+        impl $crate::arbitrary::ArbitraryStillInstruction for CsrImmWrite {
             fn take(ctx: &mut $crate::arbitrary::ArbitraryGenerationContext) -> Instruction {
                 let r = (ctx.params_mut().take_u32(Self::NUM_CSRS.ilog2() + 1) as usize);
                 let r = if r >= Self::NUM_CSRS { r - Self::NUM_CSRS } else { r };

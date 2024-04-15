@@ -3,7 +3,7 @@ use rvhwfuzzer_encoding::{
     CSub, CXor, XRegIdent,
 };
 
-use super::ArbitraryInstruction;
+use super::ArbitraryStillInstruction;
 
 macro_rules! exclude_values {
     ($value:ident, $($excluded:expr),+ => $fallback:expr) => {
@@ -15,7 +15,7 @@ macro_rules! exclude_values {
     };
 }
 
-impl ArbitraryInstruction for CAddi16Sp {
+impl ArbitraryStillInstruction for CAddi16Sp {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let imm = ctx.params_mut().take_i16(6);
         let imm = imm.max(1); // Not-Zero
@@ -24,7 +24,7 @@ impl ArbitraryInstruction for CAddi16Sp {
     }
 }
 
-impl ArbitraryInstruction for CAddi4SpN {
+impl ArbitraryStillInstruction for CAddi4SpN {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd = ctx.params_mut().take_compressed_register_dest();
         let imm = ctx.params_mut().take_u32(8);
@@ -34,7 +34,7 @@ impl ArbitraryInstruction for CAddi4SpN {
     }
 }
 
-impl ArbitraryInstruction for CAddi {
+impl ArbitraryStillInstruction for CAddi {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let mut rd_rs1 = ctx.params_mut().take_register_src();
         exclude_values!(rd_rs1, XRegIdent::Zero => XRegIdent::A0);
@@ -44,7 +44,7 @@ impl ArbitraryInstruction for CAddi {
     }
 }
 
-impl ArbitraryInstruction for CLi {
+impl ArbitraryStillInstruction for CLi {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let mut rd = ctx.params_mut().take_register_dest();
         exclude_values!(rd, XRegIdent::Zero => XRegIdent::A0);
@@ -53,7 +53,7 @@ impl ArbitraryInstruction for CLi {
     }
 }
 
-impl ArbitraryInstruction for CLui {
+impl ArbitraryStillInstruction for CLui {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let mut rd = ctx.params_mut().take_register_dest(); // Non-Zero
         exclude_values!(rd, XRegIdent::Zero, XRegIdent::take_masked(2) => XRegIdent::A0);
@@ -64,7 +64,7 @@ impl ArbitraryInstruction for CLui {
     }
 }
 
-impl ArbitraryInstruction for CSlli {
+impl ArbitraryStillInstruction for CSlli {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_register_src();
         let imm = ctx.params_mut().take_u8(5);
@@ -72,7 +72,7 @@ impl ArbitraryInstruction for CSlli {
     }
 }
 
-impl ArbitraryInstruction for CSrli {
+impl ArbitraryStillInstruction for CSrli {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         // @TODO: Make a special function for RD_RS
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
@@ -81,7 +81,7 @@ impl ArbitraryInstruction for CSrli {
     }
 }
 
-impl ArbitraryInstruction for CSrai {
+impl ArbitraryStillInstruction for CSrai {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
         let imm = ctx.params_mut().take_u8(5);
@@ -89,7 +89,7 @@ impl ArbitraryInstruction for CSrai {
     }
 }
 
-impl ArbitraryInstruction for CAndi {
+impl ArbitraryStillInstruction for CAndi {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
         let imm = ctx.params_mut().take_i8(5);
@@ -97,7 +97,7 @@ impl ArbitraryInstruction for CAndi {
     }
 }
 
-impl ArbitraryInstruction for CAdd {
+impl ArbitraryStillInstruction for CAdd {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let mut rd_rs1 = ctx.params_mut().take_register_src();
         let mut rs2 = ctx.params_mut().take_register_src();
@@ -109,7 +109,7 @@ impl ArbitraryInstruction for CAdd {
     }
 }
 
-impl ArbitraryInstruction for CMv {
+impl ArbitraryStillInstruction for CMv {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let mut rd_rs1 = ctx.params_mut().take_register_src();
         let mut rs2 = ctx.params_mut().take_register_src();
@@ -121,7 +121,7 @@ impl ArbitraryInstruction for CMv {
     }
 }
 
-impl ArbitraryInstruction for CAnd {
+impl ArbitraryStillInstruction for CAnd {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
         let rs2 = ctx.params_mut().take_compressed_register_src();
@@ -130,7 +130,7 @@ impl ArbitraryInstruction for CAnd {
     }
 }
 
-impl ArbitraryInstruction for COr {
+impl ArbitraryStillInstruction for COr {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
         let rs2 = ctx.params_mut().take_compressed_register_src();
@@ -139,7 +139,7 @@ impl ArbitraryInstruction for COr {
     }
 }
 
-impl ArbitraryInstruction for CXor {
+impl ArbitraryStillInstruction for CXor {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
         let rs2 = ctx.params_mut().take_compressed_register_src();
@@ -148,7 +148,7 @@ impl ArbitraryInstruction for CXor {
     }
 }
 
-impl ArbitraryInstruction for CSub {
+impl ArbitraryStillInstruction for CSub {
     fn take(ctx: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         let rd_rs1 = ctx.params_mut().take_compressed_register_src();
         let rs2 = ctx.params_mut().take_compressed_register_src();
@@ -157,7 +157,7 @@ impl ArbitraryInstruction for CSub {
     }
 }
 
-impl ArbitraryInstruction for CNop {
+impl ArbitraryStillInstruction for CNop {
     fn take(_: &mut super::ArbitraryGenerationContext) -> rvhwfuzzer_encoding::Instruction {
         CNop::new().into()
     }

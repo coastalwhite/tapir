@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use rvisa::MIsaExt;
 
 use super::{CsrInitContext, CsrWriteContext};
