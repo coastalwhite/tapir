@@ -17,13 +17,13 @@ use crate::classes::alu::CAluInstruction;
 use crate::classes::memory::MemoryInstruction;
 use crate::classes::muldiv::MulDivInstruction;
 
-use self::arbitrary::{ArbitraryInstruction, HopTarget, GeneratedMemory};
+use self::arbitrary::{ArbitraryInstruction, GeneratedMemory, HopTarget};
 use self::backing_store::ProgramMemory;
 use self::classes::alu::AluInstruction;
 use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
 use self::classes::fpu32::FPU32Instruction;
 use self::classes::nonhopping_branches::NonHoppingBranch;
-use self::interval_tree::IntervalTree;
+use self::interval_tree::{IntervalTree, MemoryRanges};
 use self::randombits::RandomBits;
 
 const NUM_REGISTERS: usize = 32;
@@ -372,9 +372,31 @@ pub struct MemoryArea {
 }
 
 pub struct Program {
-    pub bin: MemoryArea,
-    pub memory_areas: IntervalTree,
-    pub entry: u32,
+    bin: MemoryArea,
+    memory_areas: IntervalTree,
+    entry: u32,
+}
+
+impl Program {
+    pub fn initial_memory(&self) -> MemoryRanges {
+        self.memory_areas.initial()
+    }
+
+    pub fn final_memory(&self) -> MemoryRanges {
+        self.memory_areas.content()
+    }
+
+    pub fn take_instruction_memory(self) -> MemoryArea {
+        self.bin
+    }
+
+    pub fn instruction_memory(&self) -> &[u8] {
+        &self.bin.bytes
+    }
+
+    pub fn entry(&self) -> u32 {
+        self.entry
+    }
 }
 
 impl MemoryArea {
@@ -519,28 +541,30 @@ pub fn generate_binary(
 
 #[test]
 fn show_concrete() -> std::io::Result<()> {
-    // use std::io::Write;
+    use std::io::Write;
 
-    // let mut stdout = std::io::stdout().lock();
-    // let stdout = &mut stdout;
+    let mut stdout = std::io::stdout().lock();
+    let stdout = &mut stdout;
 
-    let mut num_instructions = 0u64;
+    // let mut num_instructions = 0u64;
 
-    // for i in 0..100 {
+    for _ in 0..100 {
 
-    let binary = generate_binary(0, &[])?;
+        let binary = generate_binary(0, &[0x7000_0000..0x8000_0000])?;
 
-    // for i in (0..binary.len()).step_by(4) {
-    //     if &binary[i..i+4] == &[0,0,0,0] {
-    //         continue;
-    //     }
-    //
-    //     let decoded = ::rvhwfuzzer_encoding::Instruction::decode(&binary[i..]).unwrap();
-    //     writeln!(stdout, "{}", ::rvhwfuzzer_encoding::asm::AsmDisplay {
-    //         ctx: &Default::default(),
-    //         instr: &decoded,
-    //     })?;
-    // }
+        let mut binary = &binary.bin.bytes[..];
+
+        while !binary.is_empty() {
+            match ::rvhwfuzzer_encoding::Instruction::decode(&mut binary).unwrap() {
+                None => {
+                    writeln!(stdout, "<unknown instr>")?;
+                }
+                Some(instr) => {
+                    writeln!(stdout, "{}", instr)?;
+                }
+            }
+        }
+    }
 
     // for (i, b) in binary.iter().enumerate() {
     //     if i != 0 && i % 8 == 0 {
@@ -552,11 +576,11 @@ fn show_concrete() -> std::io::Result<()> {
     //
     // writeln!(stdout)?;
     //
-    std::fs::write("test.bin", &binary.bin.bytes)?;
+    // std::fs::write("test.bin", &binary.bin.bytes)?;
     //
     // writeln!(stdout)?;
 
-    num_instructions += (binary.bin.len().as_usize() / 4) as u64;
+    // num_instructions += (binary.bin.len().as_usize() / 4) as u64;
 
     // writeln!(stdout, "Bytes: {}", binary.len())?;
     // writeln!(stdout, "Instructions: ~{}", binary.len() / 4)?;
@@ -566,7 +590,7 @@ fn show_concrete() -> std::io::Result<()> {
     //
     // drop(stdout);
 
-    println!("# of instructions: {num_instructions}");
+    // println!("# of instructions: {num_instructions}");
 
     assert!(false);
 

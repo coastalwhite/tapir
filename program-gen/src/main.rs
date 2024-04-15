@@ -25,7 +25,7 @@ fn main() -> std::io::Result<()> {
         //
         // writeln!(stdout)?;
 
-        num_instructions += (binary.bin.len().as_usize() / 4) as u64;
+        num_instructions += (binary.instruction_memory().len() / 4) as u64;
 
         // writeln!(stdout, "Bytes: {}", binary.len())?;
         // writeln!(stdout, "Instructions: ~{}", binary.len() / 4)?;
