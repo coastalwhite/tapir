@@ -15,12 +15,14 @@ use std::ops::Range;
 /// cache-aware, but there are some leftover optimization opportunities.
 ///
 /// [Interval Tree]: https://en.wikipedia.org/wiki/Interval_tree
+#[derive(Debug, Clone)]
 pub struct SegmentTree {
     /// Sorted vector that contains the items covering specific memory ranges
     segments: Vec<Segment>,
 }
 
 /// A segement containing the data for a specific memory range
+#[derive(Debug, Clone)]
 pub struct Segment {
     /// Start the range for the segment
     start: u32,
