@@ -1,12 +1,11 @@
-use risico::memory::BackingStore;
+use risico::memory::{BackingStore, SegmentTree};
 use risico::repr::{Addr, Word};
 
 use crate::MemoryArea;
-use crate::interval_tree::IntervalTree;
 
 pub struct ProgramMemory {
     pub bin: MemoryArea,
-    pub memory_areas: IntervalTree,
+    pub memory_areas: SegmentTree,
 }
 
 pub fn u32_to_usize(x: u32) -> usize {

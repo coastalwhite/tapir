@@ -9,6 +9,8 @@ use crate::driver::process::DriverProcess;
 use crate::repr::{Addr, Size, Word};
 use crate::util::u32_to_usize;
 
+pub use ivt_segment_tree::{Segment, SegmentTree};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endianness {
     Little,
@@ -743,5 +745,23 @@ impl BackingStore for PlacedBytes {
 
         let offset = u32_to_usize(Word::from(at).as_u32() - Word::from(self.start).as_u32());
         self.bytes[offset]
+    }
+}
+
+impl BackingStore for SegmentTree {
+    fn get_le_bytes(&self, at: Addr) -> u32 {
+        let mut bytes = [0u8; 4];
+        self.get_range(at.as_u32(), &mut bytes)
+            .expect("Unable to load memory");
+        u32::from_le_bytes(bytes)
+    }
+
+    fn set_le_bytes(&mut self, at: Addr, value: u32) {
+        let value = value.to_le_bytes();
+        self.fill_range(at.as_u32(), &value);
+    }
+
+    fn write_to(&mut self, at: Addr, src: &[u8]) {
+        self.fill_range(at.as_u32(), src)
     }
 }

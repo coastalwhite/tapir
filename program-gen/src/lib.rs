@@ -4,11 +4,11 @@ mod randombits;
 mod classes;
 
 mod backing_store;
-mod interval_tree;
 
 use std::io;
 
 use risico::repr::{Addr, Size};
+use risico::memory::{Segment, SegmentTree};
 use rvhwfuzzer_encoding::{CXRegIdent, FRegIdent, Instruction, RoundingMode, XRegIdent};
 use rvisa::{MIsa, MIsaExt};
 
@@ -23,7 +23,6 @@ use self::classes::alu::AluInstruction;
 use self::classes::csr::{CsrImmWrite, CsrRead, CsrWrite};
 use self::classes::fpu32::FPU32Instruction;
 use self::classes::hop::Hop;
-use self::interval_tree::{IntervalTree, MemoryRanges};
 use self::randombits::RandomBits;
 
 const NUM_REGISTERS: usize = 32;
@@ -295,19 +294,14 @@ pub struct MemoryArea {
 
 pub struct Program {
     bin: MemoryArea,
-    memory_areas: IntervalTree,
+    memory_areas: SegmentTree,
     entry: u32,
 }
 
 impl Program {
-    /// Get the needed initial memory for the program
-    pub fn initial_memory(&self) -> MemoryRanges {
-        self.memory_areas.initial()
-    }
-
-    /// Get the expected final memory for the program
-    pub fn final_memory(&self) -> MemoryRanges {
-        self.memory_areas.content()
+    /// Get the segments of the program memory
+    pub fn data_memory_segments(&self) -> std::slice::Iter<Segment> {
+        self.memory_areas.segments_iter()
     }
 
     /// Take the instruction memory
@@ -365,7 +359,7 @@ pub fn generate_binary(
     entry: u32,
     data_memory_ranges: &[std::ops::Range<u32>],
 ) -> io::Result<Program> {
-    let memory_areas = IntervalTree::new();
+    let memory_areas = SegmentTree::new();
     let recency_list = RegisterRecencyList::new();
 
     let memory = ProgramMemory {
