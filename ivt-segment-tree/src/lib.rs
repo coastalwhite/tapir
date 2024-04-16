@@ -37,10 +37,11 @@ fn copy_slices_to_slice((lhs, rhs): (&[u8], &[u8]), buffer: &mut [u8]) {
     if buffer.len() <= lhs.len() {
         buffer.copy_from_slice(&lhs[..buffer.len()]);
     } else {
-        buffer.copy_from_slice(lhs);
+        buffer[..lhs.len()].copy_from_slice(lhs);
 
         let end = buffer.len() - lhs.len();
-        buffer[lhs.len()..].copy_from_slice(&rhs[..usize::min(rhs.len(), end)]);
+        let buffer_end = usize::min(rhs.len(), end);
+        buffer[lhs.len()..lhs.len() + buffer_end].copy_from_slice(&rhs[..buffer_end]);
     }
 }
 
