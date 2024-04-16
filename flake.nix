@@ -42,6 +42,12 @@
             export RISCV="${riscv-toolchain.buildPackages.gcc}"
 			    '';
 			  };
+        devShells.fuzz = pkgs.mkShell {
+          packages = with pkgs; [
+            rust-bin.nightly.latest.default
+            cargo-fuzz
+          ];
+			  };
       }
     );
 }
