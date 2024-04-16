@@ -408,6 +408,12 @@ impl SegmentTree {
                     });
 
                 self.segments[start_segment].extend_back(&buffer[range_end_point..]);
+
+                if end_segment != self.num_segments() && self.segments[end_segment].start() == end {
+                    let next_segment = self.segments.remove(end_segment);
+                    self.segments[start_segment].merge_back(next_segment);
+                }
+
                 return;
             }
             Err(end_segment) => self.insert_at(end - 1, end_segment, 0).1,
