@@ -418,8 +418,8 @@ impl SegmentTree {
 
         // @Improve: Possible optimization
         // This is extremely hacky and slow, but for now this is a good enough solution.
-        for i in start..end {
-            self.insert(i, buffer[i as usize]);
+        for i in 0..end - start {
+            self.insert(start + i, buffer[i as usize]);
         }
     }
 
