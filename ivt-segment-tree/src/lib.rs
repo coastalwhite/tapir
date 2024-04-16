@@ -464,7 +464,7 @@ impl SegmentTree {
 
         // @Improve: Possible optimization
         // The following is extremely hacky and slow, but for now this is a good enough solution.
-        for i in range.start + 1..range.end - 1 {
+        for i in range.start + 1..range.end {
             self.initialize(i, f());
         }
     }
