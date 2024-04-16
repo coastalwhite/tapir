@@ -414,7 +414,7 @@ impl SegmentTree {
             Ok((_, end_segment)) => end_segment,
         };
 
-        debug_assert!(start_segment > end_segment);
+        debug_assert!(start_segment < end_segment);
 
         // @Improve: Possible optimization
         // This is extremely hacky and slow, but for now this is a good enough solution.
@@ -510,3 +510,4 @@ mod tests {
         }
     }
 }
+
