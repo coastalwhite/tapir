@@ -166,14 +166,25 @@ impl ArbitraryGenerationContext {
         }
     }
 
-    fn generate_appropriate_offset(&mut self, addr: Addr, _region: std::ops::Range<u32>, width: u32) -> i16 {
-        // eprintln!("Generating memory offset 0x{:08x}!", addr.as_u32());
+    fn generate_appropriate_offset(&mut self, addr: Addr, region: std::ops::Range<u32>, width: u32) -> i16 {
+        const REACH: u32 = 1 << 11;
 
-        self.ensure_memory_available(addr, width as u8);
+        let middle = addr.as_u32();
+
+        let reach = middle.saturating_sub(REACH)..middle.saturating_add(REACH);
+
+        debug_assert!(region.contains(&reach.start) || region.contains(&(reach.end - 1)));
+
+        let overlap = u32::max(region.start, reach.start)..u32::min(region.end, reach.end);
+
+        let target = fastrand::u32(overlap);
+
+        let offset = i64::from(target) - i64::from(middle);
+        let offset = offset as i16;
         
-        // @TODO: This is is currently very boring and should be able to generate many different
-        // offsets.
-        0
+        self.ensure_memory_available(Addr::from(target), width as u8);
+        
+        offset
     }
 
 }
