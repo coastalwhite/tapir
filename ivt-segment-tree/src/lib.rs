@@ -517,5 +517,17 @@ mod tests {
             assert_eq!(tree.get(i + 4), Some(i as u8 * 2 + 5));
         }
     }
-}
 
+    #[test]
+    fn sequential_initialize_fills() {
+        let mut tree = SegmentTree::new();
+
+        tree.initialize_fill(0..8, || 0);
+        tree.initialize_fill(16..24, || 0);
+        tree.initialize_fill(8..16, || 0);
+
+        dbg!(&tree);
+
+        assert_eq!(tree.num_segments(), 1);
+    }
+}
