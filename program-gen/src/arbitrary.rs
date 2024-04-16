@@ -167,6 +167,13 @@ impl ArbitraryGenerationContext {
     }
 
     fn generate_appropriate_offset(&mut self, addr: Addr, region: std::ops::Range<u32>, width: u32) -> i16 {
+        // @Note
+        // This number is taken because memory accesses can use a signed 12-bit number as an
+        // offset.
+        //
+        // @Improve
+        // This should probably not be hardcoded like this. I am not really sure atm how to do this
+        // any better.
         const REACH: u32 = 1 << 11;
 
         let middle = addr.as_u32();
@@ -312,50 +319,6 @@ impl_reghighimm_args! { Lui, Auipc }
 
 impl_shiftimm_args! { Slli, Srli, Srai }
 
-// pub fn min_wrapping_sub(pivot: u32, a: u32, b: u32) -> u32 {
-//     if pivot.wrapping_sub(a) < pivot.wrapping_sub(b) {
-//         a
-//     } else {
-//         b
-//     }
-// }
-//
-// /// Exclusive range that wraps around the u32 overflow
-// #[derive(Debug, Clone, Copy)]
-// struct WrappingRange {
-//     start: u32,
-//     end: u32,
-// }
-//
-// impl WrappingRange {
-//     pub fn contains(self, x: u32) -> bool {
-//         debug_assert_ne!(self.start, self.end);
-//
-//         let greater = x >= self.start;
-//         let lesser = x < self.end;
-//
-//         if self.start < self.end {
-//             greater && lesser
-//         } else {
-//             greater || lesser
-//         }
-//     }
-//
-//     pub fn len(self) -> u32 {
-//         debug_assert_ne!(self.start, self.end);
-//         self.end.wrapping_sub(self.start) + 1
-//     }
-//
-//     pub fn intersect(self, other: Self) -> Self {
-//         // @Hack
-//
-//
-//
-//         Self { start, end }
-//     }
-// }
-
-
 macro_rules! impl_load {
     ($($name:ident($width:literal)),+ $(,)?) => {
         $(
@@ -365,8 +328,6 @@ macro_rules! impl_load {
                 let rd = ctx.params_mut().take_register_dest();
                 let rs_value = ctx.state().registers().get(rs).as_addr();
                 let offset = ctx.generate_appropriate_offset(rs_value, region, $width);
-
-                // eprintln!("rd = {rd:?}\nrs = {rs:?}\noffset = {offset}\nrs value = 0x{:08x}", rs_value);
 
                 Some(Self::new(
                     rd,
@@ -388,8 +349,6 @@ macro_rules! impl_store {
                 let rs2 = ctx.params_mut().take_register_src();
                 let rs1_value = ctx.state().registers().get(rs1).as_addr();
                 let offset = ctx.generate_appropriate_offset(rs1_value, region, $width);
-
-                // eprintln!("rs2 = {rs2:?}\nrs1 = {rs1:?}\noffset = {offset}\nrs value = 0x{:08x}", rs1_value);
 
                 Some(Self::new(
                     rs1,
