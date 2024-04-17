@@ -1,39 +1,123 @@
-use rvhwfuzzer_program_gen::{generate_binary};
+use rvhwfuzzer_program_gen::{generate_binary, GenerationConfig};
+
+use std::io;
+
+struct SpeedCommand {
+    nr_tests: u32,
+    min_bbs: usize,
+    max_bbs: usize,
+    min_instrs_per_bb: usize,
+    max_instrs_per_bb: usize,
+}
+
+enum Args {
+    Speed(SpeedCommand),
+}
+
+enum ArgsError {
+    MissingBin,
+    Usage,
+    Conversion(String),
+    InvalidCommand(String),
+}
+
+fn usage(writer: &mut impl io::Write) -> io::Result<()> {
+    writeln!(writer, "Usage: {} <CMD> [..ARGS]", env!("CARGO_CRATE_NAME"))?;
+    writeln!(writer,)?;
+    writeln!(writer, "Commands:")?;
+    writeln!(writer, "  - speed <# of tests> <min bbs> <max bbs> <min i per bb> <max i per bb>")?;
+
+    Ok(())
+}
+
+fn args() -> Result<Args, ArgsError> {
+    use ArgsError as E;
+
+    let mut args = std::env::args();
+
+    args.next().unwrap();
+
+    let cmd = args.next().ok_or(E::Usage)?;
+
+    match &cmd[..] {
+        "speed" => {
+            let nr_tests = args.next().ok_or(E::Usage)?;
+            let min_bbs = args.next().ok_or(E::Usage)?;
+            let max_bbs = args.next().ok_or(E::Usage)?;
+            let min_instrs_per_bb = args.next().ok_or(E::Usage)?;
+            let max_instrs_per_bb = args.next().ok_or(E::Usage)?;
+
+            let nr_tests: u32 = nr_tests.parse().map_err(|_| E::Conversion(nr_tests))?;
+            let min_bbs: usize = min_bbs.parse().map_err(|_| E::Conversion(min_bbs))?;
+            let max_bbs: usize = max_bbs.parse().map_err(|_| E::Conversion(max_bbs))?;
+            let min_instrs_per_bb: usize = min_instrs_per_bb
+                .parse()
+                .map_err(|_| E::Conversion(min_instrs_per_bb))?;
+            let max_instrs_per_bb: usize = max_instrs_per_bb
+                .parse()
+                .map_err(|_| E::Conversion(max_instrs_per_bb))?;
+
+            Ok(Args::Speed(SpeedCommand {
+                nr_tests,
+                min_bbs,
+                max_bbs,
+                min_instrs_per_bb,
+                max_instrs_per_bb,
+            }))
+        }
+        _ => Err(E::InvalidCommand(cmd)),
+    }
+}
 
 fn main() -> std::io::Result<()> {
-    // use std::io::Write;
+    let args = args().unwrap_or_else(|err| {
+        use ArgsError as E;
 
-    // let mut stdout = std::io::stdout().lock();
-    // let stdout = &mut stdout;
+        match err {
+            E::Usage => {
+                usage(&mut std::io::stderr()).unwrap();
+            }
+            E::MissingBin => eprintln!("Binary is missing somehow"),
+            E::Conversion(v) => eprintln!("Conversion of '{v}' failed."),
+            E::InvalidCommand(cmd) => {
+                eprintln!("Invalid command '{cmd}')");
+                eprintln!();
+                usage(&mut std::io::stderr()).unwrap();
+            }
+        }
 
-    let mut num_instructions = 0u64;
+        std::process::exit(2)
+    });
 
-    for _ in 0..10000 {
-        let binary = generate_binary(0x8000_0000, &[0x7000_0000..0x8000_0000])?;
+    match args {
+        Args::Speed(cmd) => {
+            let SpeedCommand { nr_tests, min_bbs, max_bbs, min_instrs_per_bb, max_instrs_per_bb } = cmd;
+            let mut total_num_instructions = 0u64;
 
-        // for (i, b) in binary.iter().enumerate() {
-        //     if i != 0 && i % 8 == 0 {
-        //         writeln!(stdout)?;
-        //     }
-        //
-        //     write!(stdout, "{b:02X} ")?;
-        // }
-        //
-        // writeln!(stdout)?;
-        //
-        // std::fs::write("test.bin", &binary)?;
-        //
-        // writeln!(stdout)?;
+            let config = GenerationConfig {
+                entry: 0x8000_0000,
+                data_memory_ranges: &[0x7000_0000..0x8000_0000],
+                num_basic_block_range: min_bbs..max_bbs,
+                num_instrs_per_bb_range: min_instrs_per_bb..max_instrs_per_bb,
+            };
 
-        num_instructions += (binary.instruction_memory().len() / 4) as u64;
+            let start = std::time::Instant::now();
 
-        // writeln!(stdout, "Bytes: {}", binary.len())?;
-        // writeln!(stdout, "Instructions: ~{}", binary.len() / 4)?;
-        //
-        // writeln!(stdout)?;
+            for _ in 0..nr_tests {
+                let binary = generate_binary(&config)?;
+                total_num_instructions += binary.num_instructions();
+            }
+
+            let end = start.elapsed();
+
+            let total_time = end.as_secs_f64();
+
+            let avg_time = total_time / (nr_tests as f64);
+            let avg_num_instructions = (total_num_instructions as f64) / (nr_tests as f64);
+
+            println!("{total_num_instructions},{avg_num_instructions},{total_time},{avg_time},{nr_tests},{min_bbs},{max_bbs},{min_instrs_per_bb},{max_instrs_per_bb}");
+        }
     }
-
-    println!("# of instructions: {num_instructions}");
 
     Ok(())
 }

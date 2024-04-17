@@ -7,8 +7,8 @@ mod backing_store;
 
 use std::io;
 
-use risico::repr::{Addr, Size};
 use risico::memory::{Segment, SegmentTree};
+use risico::repr::{Addr, Size};
 use rvhwfuzzer_encoding::{CXRegIdent, FRegIdent, Instruction, RoundingMode, XRegIdent};
 use rvisa::{MIsa, MIsaExt};
 
@@ -284,6 +284,8 @@ fn add_instruction(
     instruction.encode(&mut ctx.state_mut().memory_mut().bin.bytes)?;
     ctx.state_mut().instruction_execute(instruction);
 
+    ctx.num_instructions += 1;
+
     Ok(())
 }
 
@@ -295,6 +297,7 @@ pub struct MemoryArea {
 pub struct Program {
     bin: MemoryArea,
     memory_areas: SegmentTree,
+    num_instructions: u64,
     entry: u32,
 }
 
@@ -317,6 +320,11 @@ impl Program {
     /// Get the entry point of the program
     pub fn entry(&self) -> u32 {
         self.entry
+    }
+
+    /// Get the number of instructions
+    pub fn num_instructions(&self) -> u64 {
+        self.num_instructions
     }
 }
 
@@ -355,16 +363,20 @@ impl MemoryArea {
     }
 }
 
-pub fn generate_binary(
-    entry: u32,
-    data_memory_ranges: &[std::ops::Range<u32>],
-) -> io::Result<Program> {
+pub struct GenerationConfig<'a> {
+    pub entry: u32,
+    pub data_memory_ranges: &'a [std::ops::Range<u32>],
+    pub num_basic_block_range: std::ops::Range<usize>,
+    pub num_instrs_per_bb_range: std::ops::Range<usize>,
+}
+
+pub fn generate_binary(config: &GenerationConfig) -> io::Result<Program> {
     let memory_areas = SegmentTree::new();
     let recency_list = RegisterRecencyList::new();
 
     let memory = ProgramMemory {
         bin: MemoryArea {
-            start: Addr::from(entry),
+            start: Addr::from(config.entry),
             bytes: Vec::new(),
         },
         memory_areas,
@@ -378,7 +390,7 @@ pub fn generate_binary(
             user: risico::syscall::ECallBehavior::TrapVector,
         },
         risico::trap::TrapBehavior::empty(),
-        entry,
+        config.entry,
         memory,
         None,
     );
@@ -386,8 +398,9 @@ pub fn generate_binary(
     let mut ctx = ArbitraryGenerationContext {
         state,
         parameter_provider: recency_list,
-        data_memory_ranges: data_memory_ranges.to_vec(),
+        data_memory_ranges: config.data_memory_ranges.to_vec(),
         potential_memory_registers: Vec::new(),
+        num_instructions: 0,
     };
 
     for i in 1..NUM_REGISTERS {
@@ -401,12 +414,12 @@ pub fn generate_binary(
         add_instruction(&mut ctx, addi.into())?;
     }
 
-    let num_bbs = fastrand::usize(MIN_BASIC_BLOCKS..MAX_BASIC_BLOCKS);
+    let num_bbs = fastrand::usize(config.num_basic_block_range.clone());
 
     for _ in 0..num_bbs {
         // println!("# of potential registers: {}", ctx.potential_memory_registers.len());
         ctx.fill_potential_memory_registers();
-        let num_instructions = fastrand::usize(MIN_INSTRUCTIONS_PER_BB..MAX_INSTRUCTIONS_PER_BB);
+        let num_instructions = fastrand::usize(config.num_instrs_per_bb_range.clone());
 
         for _ in 0..num_instructions {
             let instruction = instantiate_still_instruction(&mut ctx);
@@ -427,11 +440,14 @@ pub fn generate_binary(
         }
     }
 
+    let entry = config.entry;
+    let num_instructions = ctx.num_instructions;
     let ProgramMemory { bin, memory_areas } = ctx.take_state().take_memory();
 
     Ok(Program {
         bin,
         memory_areas,
+        num_instructions,
         entry,
     })
 }

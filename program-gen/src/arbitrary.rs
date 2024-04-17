@@ -20,6 +20,7 @@ pub struct ArbitraryGenerationContext {
     pub parameter_provider: RegisterRecencyList,
     pub data_memory_ranges: Vec<std::ops::Range<u32>>,
     pub potential_memory_registers: Vec<(XRegIdent, std::ops::Range<u32>)>,
+    pub num_instructions: u64,
 }
 
 fn addr_in_range_of_memory_region(addr: Addr, start: u32, end: u32) -> bool {
