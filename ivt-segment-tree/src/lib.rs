@@ -149,6 +149,26 @@ impl Segment {
         self.initial.extend(buffer);
     }
 
+    /// Extend several items at the front of the range
+    pub fn extend_front_with(&mut self, num: u32, mut f: impl FnMut() -> u8) {
+        self.content.reserve(num as usize);
+        self.initial.reserve(num as usize);
+
+        for _ in 0..num {
+            self.push_front(f());
+        }
+    }
+
+    /// Extend several items at the back of the range
+    pub fn extend_back_with(&mut self, num: u32, mut f: impl FnMut() -> u8) {
+        self.content.reserve(num as usize);
+        self.initial.reserve(num as usize);
+
+        for _ in 0..num {
+            self.push_back(f());
+        }
+    }
+
     /// Fill `buffer` with the initial values of `self`.
     ///
     /// Note: This is not taking into account the starting address of `self`. Instead it starts at
@@ -457,23 +477,26 @@ impl SegmentTree {
             return;
         }
 
-        // @Improve: Possible optimization
-        // It would probably be a good idea to add a special case here for when `interval_start ==
-        // Err(interval_end - 1)`. In that case, we don't have to initialize the end and can just
-        // `extend_back` the interval used for the start. This would require quite a lot of extra
-        // code though.
-        let end_segment = self.initialize(range.end - 1, f());
+        let end_segment = self.segment_search(range.end - 1);
 
-        debug_assert!(start_segment <= end_segment);
+        match end_segment {
+            Err(end_segment) if end_segment == start_segment + 1 => {
+                let initialize_len = range.end - self.segments[start_segment].end();
 
-        if start_segment == end_segment {
-            return;
-        }
+                self.segments[start_segment].extend_back_with(initialize_len, f);
 
-        // @Improve: Possible optimization
-        // The following is extremely hacky and slow, but for now this is a good enough solution.
-        for i in range.start + 1..range.end {
-            self.initialize(i, f());
+                if end_segment != self.num_segments() && self.segments[end_segment].start() == range.end {
+                    let next_segment = self.segments.remove(end_segment);
+                    self.segments[start_segment].merge_back(next_segment);
+                }
+            }
+            _ => {
+                // @Improve: Possible optimization
+                // The following is extremely hacky and slow, but for now this is a good enough solution.
+                for i in range.start + 1..range.end {
+                    self.initialize(i, f());
+                }
+            }
         }
     }
 
