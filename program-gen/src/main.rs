@@ -12,6 +12,10 @@ struct SpeedCommand {
 
 enum Args {
     Speed(SpeedCommand),
+    Memory {
+        speed: SpeedCommand,
+        memory_range: std::ops::Range<u32>,
+    },
 }
 
 enum ArgsError {
@@ -25,12 +29,40 @@ fn usage(writer: &mut impl io::Write) -> io::Result<()> {
     writeln!(writer, "Usage: {} <CMD> [..ARGS]", env!("CARGO_CRATE_NAME"))?;
     writeln!(writer,)?;
     writeln!(writer, "Commands:")?;
-    writeln!(writer, "  - speed <# of tests> <min bbs> <max bbs> <min i per bb> <max i per bb>")?;
+    writeln!(
+        writer,
+        "  - speed <# of tests> <min bbs> <max bbs> <min i per bb> <max i per bb>"
+    )?;
 
     Ok(())
 }
 
 fn args() -> Result<Args, ArgsError> {
+    fn take_speed(args: &mut std::env::Args) -> Result<SpeedCommand, ArgsError> {
+        let nr_tests = args.next().ok_or(E::Usage)?;
+        let min_bbs = args.next().ok_or(E::Usage)?;
+        let max_bbs = args.next().ok_or(E::Usage)?;
+        let min_instrs_per_bb = args.next().ok_or(E::Usage)?;
+        let max_instrs_per_bb = args.next().ok_or(E::Usage)?;
+
+        let nr_tests: u32 = nr_tests.parse().map_err(|_| E::Conversion(nr_tests))?;
+        let min_bbs: usize = min_bbs.parse().map_err(|_| E::Conversion(min_bbs))?;
+        let max_bbs: usize = max_bbs.parse().map_err(|_| E::Conversion(max_bbs))?;
+        let min_instrs_per_bb: usize = min_instrs_per_bb
+            .parse()
+            .map_err(|_| E::Conversion(min_instrs_per_bb))?;
+        let max_instrs_per_bb: usize = max_instrs_per_bb
+            .parse()
+            .map_err(|_| E::Conversion(max_instrs_per_bb))?;
+
+        Ok(SpeedCommand {
+            nr_tests,
+            min_bbs,
+            max_bbs,
+            min_instrs_per_bb,
+            max_instrs_per_bb,
+        })
+    }
     use ArgsError as E;
 
     let mut args = std::env::args();
@@ -40,30 +72,22 @@ fn args() -> Result<Args, ArgsError> {
     let cmd = args.next().ok_or(E::Usage)?;
 
     match &cmd[..] {
-        "speed" => {
-            let nr_tests = args.next().ok_or(E::Usage)?;
-            let min_bbs = args.next().ok_or(E::Usage)?;
-            let max_bbs = args.next().ok_or(E::Usage)?;
-            let min_instrs_per_bb = args.next().ok_or(E::Usage)?;
-            let max_instrs_per_bb = args.next().ok_or(E::Usage)?;
+        "speed" => take_speed(&mut args).map(Args::Speed),
+        "memory" => {
+            let speed = take_speed(&mut args)?;
 
-            let nr_tests: u32 = nr_tests.parse().map_err(|_| E::Conversion(nr_tests))?;
-            let min_bbs: usize = min_bbs.parse().map_err(|_| E::Conversion(min_bbs))?;
-            let max_bbs: usize = max_bbs.parse().map_err(|_| E::Conversion(max_bbs))?;
-            let min_instrs_per_bb: usize = min_instrs_per_bb
-                .parse()
-                .map_err(|_| E::Conversion(min_instrs_per_bb))?;
-            let max_instrs_per_bb: usize = max_instrs_per_bb
-                .parse()
-                .map_err(|_| E::Conversion(max_instrs_per_bb))?;
+            let min_range = args.next().ok_or(E::Usage)?;
+            let max_range = args.next().ok_or(E::Usage)?;
 
-            Ok(Args::Speed(SpeedCommand {
-                nr_tests,
-                min_bbs,
-                max_bbs,
-                min_instrs_per_bb,
-                max_instrs_per_bb,
-            }))
+            let min_range: u32 = min_range.parse().map_err(|_| E::Conversion(min_range))?;
+            let max_range: u32 = max_range.parse().map_err(|_| E::Conversion(max_range))?;
+
+            let memory_range = min_range..max_range;
+
+            Ok(Args::Memory {
+                speed,
+                memory_range,
+            })
         }
         _ => Err(E::InvalidCommand(cmd)),
     }
@@ -91,7 +115,13 @@ fn main() -> std::io::Result<()> {
 
     match args {
         Args::Speed(cmd) => {
-            let SpeedCommand { nr_tests, min_bbs, max_bbs, min_instrs_per_bb, max_instrs_per_bb } = cmd;
+            let SpeedCommand {
+                nr_tests,
+                min_bbs,
+                max_bbs,
+                min_instrs_per_bb,
+                max_instrs_per_bb,
+            } = cmd;
             let mut total_num_instructions = 0u64;
 
             let config = GenerationConfig {
@@ -116,6 +146,41 @@ fn main() -> std::io::Result<()> {
             let avg_num_instructions = (total_num_instructions as f64) / (nr_tests as f64);
 
             println!("{total_num_instructions},{avg_num_instructions},{total_time},{avg_time},{nr_tests},{min_bbs},{max_bbs},{min_instrs_per_bb},{max_instrs_per_bb}");
+        }
+        Args::Memory {
+            speed,
+            memory_range,
+        } => {
+            let SpeedCommand {
+                nr_tests,
+                min_bbs,
+                max_bbs,
+                min_instrs_per_bb,
+                max_instrs_per_bb,
+            } = speed;
+            let range_bytes = memory_range.len();
+            let mut total_num_instructions = 0u64;
+            let mut allocated_bytes = 0usize;
+            let mut allocated_segments = 0usize;
+
+            let config = GenerationConfig {
+                entry: 0x8000_0000,
+                data_memory_ranges: &[memory_range],
+                num_basic_block_range: min_bbs..max_bbs,
+                num_instrs_per_bb_range: min_instrs_per_bb..max_instrs_per_bb,
+            };
+
+            for _ in 0..nr_tests {
+                let binary = generate_binary(&config)?;
+                total_num_instructions += binary.num_instructions();
+
+                for segment in binary.data_memory_segments() {
+                    allocated_bytes += segment.len() as usize;
+                    allocated_segments += 1;
+                }
+            }
+
+            println!("{total_num_instructions},{nr_tests},{range_bytes},{allocated_bytes},{allocated_segments}");
         }
     }
 
