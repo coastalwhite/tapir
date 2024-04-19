@@ -18,6 +18,13 @@ use std::ops::Range;
 #[derive(Debug, Clone)]
 pub struct SegmentTree {
     /// Sorted vector that contains the items covering specific memory ranges
+    /// 
+    /// @Improve
+    /// Although, this is nice and cache efficient. It does not really work. If we have very
+    /// fragmented segments, every new segment needs to move all other segments over. It seems a RB
+    /// tree would probably be a good fit here since we have to do log(n) insertions anyway. It
+    /// might be good to see if we can somehow make it a bit more cache efficient still. Arena
+    /// allocation?
     segments: Vec<Segment>,
 }
 
