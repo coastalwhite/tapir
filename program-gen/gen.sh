@@ -1,13 +1,9 @@
 #!/bin/sh
 
-nr_tests=100
-# min_bbs=(1 10)
-# diff_bbs=(1 10 100)
-# min_instrs_per_bb=(1 10)
-# diff_instrs_per_bb=(1 10 100)
-min_bbs=(1 10 100 1000 10000)
+nr_tests=10
+min_bbs=(1 10 50 100 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000)
 diff_bbs=(1)
-min_instrs_per_bb=(1 10 100)
+min_instrs_per_bb=(1 10 20 30 40 50 60 70 80 90 100)
 diff_instrs_per_bb=(1)
 out_file="out.csv"
 
